@@ -1,0 +1,349 @@
+---
+title: "PriorPredictiveChecks"
+output: pdf_document
+author: ""
+date: "2025-03-06"
+editor_options: 
+  chunk_output_type: console
+---
+
+# Sample Only Priors
+
+```{r, eval = FALSE}
+f_coupled_dynamics_acc <- mvbf(
+    FatherValence_s ~ 0 + Leave + (Leave | CoupleID),
+    MotherValence_s ~ 0 + Leave + (Leave | CoupleID),
+  
+    FatherArousal_s ~ 0 + Leave + (Leave | CoupleID),
+    MotherArousal_s ~ 0 + Leave + (Leave | CoupleID),
+    
+    FatherValenceVel ~ 0 + Leave + (Leave | CoupleID),
+    MotherValenceVel ~ 0 + Leave + (Leave | CoupleID),
+
+    FatherValenceAcc ~ 0 + Leave +
+                       Leave:FatherValence_s + Leave:FatherValenceVel +
+                       Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
+                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
+                       Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
+                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s | CoupleID / StudyDay),
+    
+    MotherValenceAcc ~ 0 + Leave +
+                       Leave:MotherValence_s + Leave:MotherValenceVel +
+                       Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
+                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
+                       Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
+                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s | CoupleID / StudyDay))
+
+p_coupled_dynamics <- c(
+  prior(normal(0, 2), class = "b", resp = "FatherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "FatherValences"),
+  prior(normal(0, 2), class = "b", resp = "FatherValenceVel"),
+  
+  prior(normal(0, 2), class = "b", resp = "MotherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "MotherValences"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceVel"),
+  
+  prior(normal(0, 2), class = "b", resp = "FatherArousals"),
+  prior(normal(0, 2), class = "b", resp = "MotherArousals"),
+  
+  prior(normal(1, 2), class = "sd", resp = "FatherValenceAcc"),
+  prior(normal(1, 2), class = "sd", resp = "FatherValences"),
+  prior(normal(1, 2), class = "sd", resp = "FatherValenceVel"),
+  
+  prior(normal(1, 2), class = "sd", resp = "MotherValenceAcc"),
+  prior(normal(1, 2), class = "sd", resp = "MotherValences"),
+  prior(normal(1, 2), class = "sd", resp = "MotherValenceVel"),
+  
+  prior(normal(1, 2), class = "sigma", resp = "FatherValenceAcc"),
+  prior(normal(1, 2), class = "sigma", resp = "FatherValences"),
+  prior(normal(1, 2), class = "sigma", resp = "FatherValenceVel"),
+  
+  prior(normal(1, 2), class = "sigma", resp = "MotherValenceAcc"),
+  prior(normal(1, 2), class = "sigma", resp = "MotherValences"),
+  prior(normal(1, 2), class = "sigma", resp = "MotherValenceVel"),
+  prior(lkj(2), class = "rescor")
+)
+  
+CoupledOscillatorModel_prior <- brm(
+            f_coupled_dynamics_acc,
+            data = d_multivariate,
+            family = gaussian(),
+            prior = p_coupled_dynamics, 
+            sample_prior = "only",
+            chains = 2,
+            cores = 64,
+            warmup = 500,
+            iter = 2000,
+            control = list(adapt_delta = 0.90, max_treedepth = 10),
+            backend = 'cmdstan')
+```
+
+
+```{r}
+CoupledOscillatorModel_prior <- readRDS(here("FinalModels", "CoupledOscillatorModel_prior.rds"))
+
+PriorCheck_FatherValencePos <- pp_check(CoupledOscillatorModel_prior, ndraws = 50, resp = "FatherValences") +
+  ggtitle('Prior Predictive Check') +
+  xlab('Father Position') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        legend.position = "none",
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PosteriorCheck_FatherValencePos <- pp_check(CoupledOscillatorModel, ndraws = 50, resp = "FatherValences") +
+  ggtitle('Posterior Predictive Check') +
+  xlab('Father Position') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PriorCheck_MotherValencePos <- pp_check(CoupledOscillatorModel_prior, ndraws = 50, resp = "MotherValences") +
+  ggtitle('Prior Predictive Check') +
+  xlab('Mother Position') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        legend.position = "none",
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PosteriorCheck_MotherValencePos <- pp_check(CoupledOscillatorModel, ndraws = 50, resp = "MotherValences") +
+  ggtitle('Posterior Predictive Check') +
+  xlab('Father Position') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PriorCheck_FatherValenceVel <- pp_check(CoupledOscillatorModel_prior, ndraws = 50, resp = "FatherValenceVel") +
+  xlab('Father Velocity') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        legend.position = "none",
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PosteriorCheck_FatherValenceVel <- pp_check(CoupledOscillatorModel, ndraws = 50, resp = "FatherValenceVel") +
+  xlab('Father Velocity') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PriorCheck_MotherValenceVel <- pp_check(CoupledOscillatorModel_prior, ndraws = 50, resp = "MotherValenceVel") +
+  xlab('Mother Velocity') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        legend.position = "none",
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PosteriorCheck_MotherValenceVel <- pp_check(CoupledOscillatorModel, ndraws = 50, resp = "MotherValenceVel") +
+  xlab('Mother Velocity') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PriorCheck_FatherValenceAcc <- pp_check(CoupledOscillatorModel_prior, ndraws = 50, resp = "FatherValenceAcc") +
+  xlab('Father Acceleration') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        legend.position = "none",
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PriorCheck_MotherValenceAcc <- pp_check(CoupledOscillatorModel_prior, ndraws = 50, resp = "MotherValenceAcc") +
+  xlab('Mother Acceleration') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        legend.position = "none",
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+
+PosteriorCheck_FatherValenceAcc <- pp_check(CoupledOscillatorModel, ndraws = 50, resp = "FatherValenceAcc") +
+  xlab('Father Acceleration') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PosteriorCheck_MotherValenceAcc <- pp_check(CoupledOscillatorModel, ndraws = 50, resp = "MotherValenceAcc") +
+  xlab('Mother Acceleration') +
+  xlim(c(-20, 20)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size=18), 
+        axis.text.x = element_text(size = 13, color = "black"),
+        axis.title.x = element_text(size = 13, color = "black"),
+        axis.text.y = element_text(size = 0),
+        axis.ticks.y = element_line(linewidth = 0),
+        axis.title.y = element_text(size = 13, color = "black"),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 13, color = "black"))
+
+PriorPosteriorCheck_FatherValencePos <- cowplot::plot_grid(PriorCheck_FatherValencePos, PosteriorCheck_FatherValencePos, rel_widths = c(0.8, 1))
+PriorPosteriorCheck_MotherValencePos <- cowplot::plot_grid(PriorCheck_MotherValencePos, PosteriorCheck_MotherValencePos, rel_widths = c(0.8, 1))
+PriorPosteriorCheck_FatherValenceVel <- cowplot::plot_grid(PriorCheck_FatherValenceVel, PosteriorCheck_FatherValenceVel, rel_widths = c(0.8, 1))
+PriorPosteriorCheck_MotherValenceVel <- cowplot::plot_grid(PriorCheck_MotherValenceVel, PosteriorCheck_MotherValenceVel, rel_widths = c(0.8, 1))
+PriorPosteriorCheck_FatherValenceAcc <- cowplot::plot_grid(PriorCheck_FatherValenceAcc, PosteriorCheck_FatherValenceAcc, rel_widths = c(0.8, 1))
+PriorPosteriorCheck_MotherValenceAcc <- cowplot::plot_grid(PriorCheck_MotherValenceAcc, PosteriorCheck_MotherValenceAcc, rel_widths = c(0.8, 1))
+
+PriorPosteriorCheckFather <- plot_grid(PriorPosteriorCheck_FatherValencePos,
+                                       PriorPosteriorCheck_FatherValenceVel,
+                                       PriorPosteriorCheck_FatherValenceAcc, 
+                                       nrow = 3, rel_widths = c(1, 0.8, 0.8))
+
+PriorPosteriorCheckMother <- plot_grid(PriorPosteriorCheck_MotherValencePos,
+                                       PriorPosteriorCheck_MotherValenceVel,
+                                       PriorPosteriorCheck_MotherValenceAcc, 
+                                       nrow = 3, rel_widths = c(1, 0.8, 0.8))
+
+#ggsave(plot = PriorPosteriorCheckFather, file = here("FinalFigures", "PriorPosteriorCheckFather.pdf"), width = 12, height = 15)
+#ggsave(plot = PriorPosteriorCheckMother, file = here("FinalFigures", "PriorPosteriorCheckMother.pdf"), width = 12, height = 15)
+```
+
+```{r}
+combined_plots <- create_posterior_plots(CoupledOscillatorModel, CoupledOscillatorModel_prior)
+combined_plots
+#ggsave(plot = combined_plots, file = here("FinalFigures", "PriorPosteriorUpdateChecks.pdf"), width = 12, height = 15)
+```
+
+```{r}
+# Extract posterior draws
+posterior_samples <- as_draws_df(CoupledOscillatorModel)
+# Define the components we want
+responses <- c("FatherValences", "MotherValences",
+              "FatherValenceVel", "MotherValenceVel",
+              "FatherValenceAcc", "MotherValenceAcc")
+
+leave_types <- c("MaternityLeave", "PaternityLeave")
+
+# Create a more specific parameter selection that excludes interactions
+params_to_plot <- c()
+for(response in responses) {
+  for(leave in leave_types) {
+    param_name <- paste0("b_", response, "_Leave", leave, "$")
+    params_to_plot <- c(params_to_plot, 
+                       grep(param_name, colnames(posterior_samples), value = TRUE))
+  }
+}
+
+# Create a named vector for prettier labels
+nice_labels <- c(
+  "b_FatherValences_LeaveMaternityLeave" = "Father Position (Maternity Leave)",
+  "b_FatherValences_LeavePaternityLeave" = "Father Position (Paternity Leave)",
+  "b_MotherValences_LeaveMaternityLeave" = "Mother Position (Maternity Leave)",
+  "b_MotherValences_LeavePaternityLeave" = "Mother Position (Paternity Leave)",
+  "b_FatherValenceVel_LeaveMaternityLeave" = "Father Velocity (Maternity Leave)",
+  "b_FatherValenceVel_LeavePaternityLeave" = "Father Velocity (Paternity Leave)",
+  "b_MotherValenceVel_LeaveMaternityLeave" = "Mother Velocity (Maternity Leave)",
+  "b_MotherValenceVel_LeavePaternityLeave" = "Mother Velocity (Paternity Leave)",
+  "b_FatherValenceAcc_LeaveMaternityLeave" = "Father Acceleration (Maternity Leave)",
+  "b_FatherValenceAcc_LeavePaternityLeave" = "Father Acceleration (Paternity Leave)",
+  "b_MotherValenceAcc_LeaveMaternityLeave" = "Mother Acceleration (Maternity Leave)",
+  "b_MotherValenceAcc_LeavePaternityLeave" = "Mother Acceleration (Paternity Leave)"
+)
+
+MCMCTracePlot <- mcmc_trace(posterior_samples, 
+           pars = params_to_plot,
+           facet_args = list(ncol = 2, labeller = labeller(parameter = nice_labels))) +
+  scale_color_manual(values = viridis(n = 2)) + 
+  scale_y_continuous(breaks = c(seq(-0.4, 0.2, 0.2)), limits = c(-0.3, 0.3)) +
+  theme_minimal() +
+  labs(title = "MCMC Traces",
+       x = "Iteration",
+       y = "Parameter Value") +
+  theme(
+      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = 0)),
+      axis.text.x = element_text(size = 20, color = "black"),
+      axis.title.x = element_text(size = 20), 
+      axis.text.y = element_text(size = 20, color = "black"),
+      axis.title.y = element_text(size = 20), 
+      axis.ticks = element_blank(),
+      legend.text = element_text(size = 20),
+      legend.title = element_text(size = 20),
+      #legend.direction = "horizontal",
+      axis.line.y = element_blank(),
+      axis.line.x = element_blank(),
+      strip.background = element_rect(
+        color = "white", 
+        fill = "white", 
+        linewidth = 1.5, 
+        linetype = "solid"
+      ),
+      strip.text.x = element_text(size = 20, color = "black"),
+      plot.margin = margin(1, 1, 1, 1, "cm"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+MCMCTracePlot
+#ggsave(plot = MCMCTracePlot, file = here("FinalFigures", "MCMCTracePlot.pdf"), width = 13, height = 15)
+```

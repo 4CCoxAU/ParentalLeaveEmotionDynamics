@@ -1,0 +1,549 @@
+---
+title: "simulate"
+author: ""
+date: "2025-03-06"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Simulation Function for First Five Emotion Dynamics Patterns
+```{r}
+simulate_dyadic_emotions <- function(n_timepoints, 
+                                   auto_corr_mother,
+                                   auto_corr_father,
+                                   cross_corr_m_to_f,
+                                   cross_corr_f_to_m,
+                                   correlation,
+                                   sd_mother,
+                                   sd_father) {
+  
+  # Create matrices to store the simulated values
+  mother <- numeric(n_timepoints)
+  father <- numeric(n_timepoints)
+  
+  # Generate correlated random noise
+  mu <- c(0, 0)  # means
+  sigma <- matrix(c(1, correlation, 
+                   correlation, 1), 2, 2)  # correlation matrix
+  
+  # Generate multivariate normal random numbers
+  random_effects <- MASS::mvrnorm(n_timepoints, mu = mu, Sigma = sigma)
+  
+  # Scale the random effects by the desired standard deviations
+  noise_mother <- random_effects[, 1] * sd_mother
+  noise_father <- random_effects[, 2] * sd_father
+  
+  # Initialize first time point
+  mother[1] <- noise_mother[1]
+  father[1] <- noise_father[1]
+  
+  # Generate time series using AR(1) process with cross-correlations
+  for(t in 2:n_timepoints) {
+    mother[t] <- auto_corr_mother * mother[t-1] + 
+                 cross_corr_f_to_m * father[t-1] + 
+                 noise_mother[t]
+    
+    father[t] <- auto_corr_father * father[t-1] + 
+                 cross_corr_m_to_f * mother[t-1] + 
+                 noise_father[t]
+  }
+  
+  # Create output data frame
+  result <- data.frame(
+    time = 1:n_timepoints,
+    mother = mother,
+    father = father
+  )
+  
+  return(result)
+}
+```
+
+# First Pattern: Synchrony
+```{r}
+sim2.5 <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.3,
+  auto_corr_father = 0.3,
+  cross_corr_m_to_f = 0.4,  # Strong mutual influence
+  cross_corr_f_to_m = 0.4,
+  correlation = 0.95,        # High concurrent correlation
+  sd_mother = 0.8,
+  sd_father = 0.8
+)
+
+ValencePlot_1 <- ggplot(sim2.5, aes(x = time)) +
+    geom_line(aes(y = mother, color = "Mother"), size = 1) +
+    geom_line(aes(y = father, color = "Father"), size = 1) +
+    geom_point(aes(y = mother, color = "Mother"), size = 3) +
+    geom_point(aes(y = father, color = "Father"), size = 3) +
+    #geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
+    scale_color_manual(values = c("#21908CFF", "#D95F02")) +
+    geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    ylim(c(-2.5, 2.5)) +
+    theme_minimal() +
+    labs(title = "Synchrony",
+         y = "Valence",
+         x = "",
+         color = "Partner") +
+    theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = "none",
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+ValencePlot_1
+```
+
+# Second Pattern: Co-Regulation
+```{r}
+sim3.5 <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.9,  # Strong mother-to-father influence
+  cross_corr_f_to_m = 0.9,  # Strong father-to-mother influence
+  correlation = 0.1,
+  sd_mother = 0.5,
+  sd_father = 0.5
+)
+
+ValencePlot_2 <- ggplot(sim3.5, aes(x = time)) +
+    geom_line(aes(y = mother, color = "Mother"), size = 1) +
+    geom_line(aes(y = father, color = "Father"), size = 1) +
+    geom_point(aes(y = mother, color = "Mother"), size = 3) +
+    geom_point(aes(y = father, color = "Father"), size = 3) +
+    #geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
+    scale_color_manual(values = c("#21908CFF", "#D95F02")) +
+    #scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 20)) +
+    #scale_x_continuous(limits = c(0, 42), breaks = seq(0, 42, 5)) +
+    #scale_x_continuous(breaks = seq(1, 42, by = 6), labels = c("Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7")) +
+    geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    ylim(c(-2.5, 2.5)) +
+    theme_minimal() +
+    labs(title = "Co-Regulation",
+         y = "Valence",
+         x = "",
+         color = "Partner") +
+    theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = "none",
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          strip.text.x = element_text(size = 20, color = "black", face ="bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+ValencePlot_2
+```
+
+# Third Pattern: Co-Dysregulation
+```{r}
+sim3 <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.5,    # High emotional inertia
+  auto_corr_father = 0.5,    # High emotional inertia
+  cross_corr_m_to_f = 0.75,   # Strong positive influence between partners
+  cross_corr_f_to_m = 0.75,   # Same strong influence back
+  correlation = 0.5,         # High concurrent correlation
+  sd_mother = 0.6,          # High variability to allow for escalation
+  sd_father = 0.6           # High variability to allow for escalation
+)
+
+ValencePlot_3 <- ggplot(sim3, aes(x = time)) +
+    geom_line(aes(y = mother, color = "Mother"), size = 1) +
+    geom_line(aes(y = father, color = "Father"), size = 1) +
+    geom_point(aes(y = mother, color = "Mother"), size = 3) +
+    geom_point(aes(y = father, color = "Father"), size = 3) +
+    #geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
+    scale_color_manual(values = c("#21908CFF", "#D95F02")) +
+    geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    #ylim(c(-5, 0)) +
+    theme_minimal() +
+    labs(title = "Co-Dysregulation",
+         y = "Valence",
+         x = "",
+         color = "Partner") +
+    theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = "none",
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          strip.text.x = element_text(size = 20, color = "black", face ="bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+
+ValencePlot_3
+```
+
+# Fourth Pattern: Leader-Follower
+```{r}
+sim5 <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.9,  # Strong mother-to-father influence
+  cross_corr_f_to_m = 0.1,  # Weak father-to-mother influence
+  correlation = 0.1,
+  sd_mother = 1,
+  sd_father = 1
+)
+
+
+ValencePlot_4 <- ggplot(sim5, aes(x = time)) +
+    geom_line(aes(y = mother, color = "Mother"), size = 1) +
+    geom_line(aes(y = father, color = "Father"), size = 1) +
+    geom_point(aes(y = mother, color = "Mother"), size = 3) +
+    geom_point(aes(y = father, color = "Father"), size = 3) +
+    #geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
+    scale_color_manual(values = c("#21908CFF", "#D95F02")) +
+    scale_color_manual(values = c("#21908CFF", "#D95F02")) +
+    geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    ylim(c(-3, 3)) +
+    theme_minimal() +
+    labs(title = "Leader-Follower",
+         y = "Valence",
+         x = "",
+         color = "Partner") +
+  guides(color = guide_legend(nrow = 1)) +
+    theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_text(size = 20, face = "bold"),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          strip.text = element_text(size = 20, face = "bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(2, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = c(0, 1.2),
+          legend.box = "horizontal")
+ValencePlot_4
+```
+
+# Fifth Pattern: Strong and Weak Self-Regulation
+```{r}
+# Create modified simulation function to focus on self-regulation
+simulate_self_regulation <- function(n_timepoints, 
+                                   auto_corr,
+                                   position_force,
+                                   sd_noise,
+                                   startingpoint) {
+  
+  # Create vectors to store the simulated values
+  position <- numeric(n_timepoints)
+  velocity <- numeric(n_timepoints)
+  
+  # Initialize with perturbation from equilibrium
+  position[1] <- startingpoint  # Start displaced from equilibrium
+  velocity[1] <- 0  # Start with zero velocity
+  
+  # Generate time series using second-order dynamics
+  for(t in 2:n_timepoints) {
+    # Calculate acceleration based on position and velocity
+    acceleration <- position_force * position[t-1] + auto_corr * velocity[t-1]
+    
+    # Update velocity using acceleration
+    velocity[t] <- velocity[t-1] + acceleration + rnorm(1, 0, sd_noise)
+    
+    # Update position using velocity
+    position[t] <- position[t-1] + velocity[t]
+  }
+  
+  # Create output data frame
+  result <- data.frame(
+    time = 1:n_timepoints,
+    emotion = position
+  )
+  
+  return(result)
+}
+
+sim_weak_regulation <- simulate_self_regulation(
+  n_timepoints = 18,
+  auto_corr = -0.1,
+  position_force = -0.23, 
+  sd_noise = 0.3,
+  startingpoint = 0.6
+) %>%
+  mutate(pattern = "Weak")
+
+sim_strong_regulation <- simulate_self_regulation(
+  n_timepoints = 18,
+  auto_corr = -0.1,
+  position_force = -1.1,
+  sd_noise = 0.2,
+  startingpoint = 0.3
+) %>%
+  mutate(pattern = "Strong")
+
+SelfRegulationPlot <- ggplot() +
+    geom_line(size = 1, color = "#e6ab02", data = sim_strong_regulation, aes(x = time, y = emotion)) +
+    geom_point(size = 3, color = "#e6ab02", data = sim_strong_regulation, aes(x = time, y = emotion)) +
+    geom_line(size = 1, color = "#7570b3", data = sim_weak_regulation, aes(x = time, y = emotion)) +
+    geom_point(size = 3, color = "#7570b3", data = sim_weak_regulation, aes(x = time, y = emotion)) +
+    geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    scale_y_continuous(limits = c(-2.5, 1.8), breaks = c(-1, 0, 1)) +
+    theme_minimal() +
+    labs(title = "Self-Regulation",
+         y = "Valence",
+         x = "Time") +
+    theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_text(size = 20),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          strip.text = element_text(size = 20, face = "bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+
+SelfRegulationPlot
+```
+
+# Sixth Pattern: Strong and Weak Inertia
+```{r}
+sim_weak_inertia <- simulate_self_regulation(
+  n_timepoints = 18,
+  auto_corr = 0,
+  position_force = -1, 
+  sd_noise = 0.1,
+  startingpoint = 0.5
+) %>%
+  mutate(pattern = "Weak")
+
+sim_strong_inertia <- simulate_self_regulation(
+  n_timepoints = 18,
+  auto_corr = 0.1,
+  position_force = -1,
+  sd_noise = 0.1,
+  startingpoint = 1
+) %>%
+  mutate(pattern = "Strong")
+
+inertia_data <- rbind(
+  sim_weak_inertia,
+  sim_strong_inertia
+)
+
+InertiaPlot <- ggplot(data = inertia_data, aes(x = time, y = emotion, color = pattern)) +
+    geom_line(size = 1) +
+    geom_point(size = 3) +
+    geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+    scale_color_manual(values = c("Strong" = "#e6ab02", "Weak" = "#7570b3")) +
+    scale_y_continuous(limits = c(-2.5, 1.8), breaks = c(-1, 0, 1)) +
+    theme_minimal() +
+    labs(title = "Inertia",
+         y = "Emotion",
+         x = "Time") +
+  guides(color = guide_legend(nrow = 1)) +
+    theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_text(size = 20),
+          axis.text.y = element_blank(),
+          axis.title.y = element_blank(),
+          strip.text = element_text(size = 20, face = "bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(2, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = c(0, 0.1),
+          legend.box = "horizontal")
+InertiaPlot
+
+SelfRegulation <- plot_grid(SelfRegulationPlot, InertiaPlot, nrow = 1, rel_widths = c(0.52, 0.48))
+SelfRegulation
+```
+
+# Combine all plots in 
+```{r}
+SimulatedPatternsVisualAbstractFigure <- plot_grid(ValencePlot_1, ValencePlot_2, ValencePlot_3, ValencePlot_4, 
+                                                   ncol = 2, rel_widths = c(0.52, 0.48))
+
+SimulatedPatternsVisualAbstractFigure <- plot_grid(SimulatedPatternsVisualAbstractFigure, SelfRegulation, nrow = 2, rel_heights = c(0.66, 0.33))
+SimulatedPatternsVisualAbstractFigure
+
+ggsave(plot = SimulatedPatternsVisualAbstractFigure, filename = here("FinalFigures", "SimulatedPatternsVisualAbstractFigure.pdf"), height = 10, width = 12)
+```
+
+# Demonstration Plot for Position, Velocity, Acceleration
+```{r}
+damped_oscillator <- function(t, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    dx_father <- v_father
+    dv_father <- -k_father * x_father - b_father * v_father
+    dx_mother <- v_mother
+    dv_mother <- -k_mother * x_mother - b_mother * v_mother
+    list(c(dx_father, dv_father, dx_mother, dv_mother))
+  })
+}
+
+parameters <- c(
+  k_father = 1.2,
+  b_father = 0.8,
+  k_mother = 0.5,
+  b_mother = 0.3
+)
+
+initial_state <- c(
+  x_father = -.5,
+  v_father = 0,
+  x_mother = -.5,
+  v_mother = 0
+)
+
+times <- seq(0, 20, by = 0.1)
+output <- ode(y = initial_state, times = times, func = damped_oscillator, parms = parameters)
+output_df <- as.data.frame(output)
+names(output_df) <- c("time", "father_emotion", "father_velocity", "mother_emotion", "mother_velocity")
+
+# Calculate derivatives
+output_df <- output_df %>%
+  group_by(time) %>%
+  # Velocity is already calculated in the ODE
+  mutate(
+    # Acceleration (second derivative)
+    father_acceleration = -parameters["k_father"] * father_emotion - 
+                         parameters["b_father"] * father_velocity,
+    mother_acceleration = -parameters["k_mother"] * mother_emotion - 
+                         parameters["b_mother"] * mother_velocity
+  ) %>%
+  ungroup()
+
+# Add annotation at specific time point
+t_point <- 4.6  # Choose point for annotation
+point_data <- output_df %>% filter(near(time, t_point))
+
+emotion_position <- ggplot(output_df) +
+  geom_line(aes(x = time, y = father_emotion, color = "Father"), color = "#1B9E77", size = 1.5) +
+  geom_line(aes(x = time, y = mother_emotion, color = "Mother"), color = "#D95F02", size = 1.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_color_manual(values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
+  geom_point(data = point_data,
+             aes(x = time, y = father_emotion),
+             color = "#21908CFF", size = 4) +
+  geom_point(data = point_data,
+             aes(x = time, y = mother_emotion),
+             color = "#D95F02", size = 4) +
+  scale_x_continuous(limits = c(0, 15), breaks = seq(0, 15, 3)) +
+  scale_y_continuous(limits = c(-0.6, 0.6), breaks = seq(-1, 1, by = 0.5)) +
+  labs(title = "Position", y = "Valence (z-scored)", x = "") +
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, size=20, color = "black"),
+        axis.text.x = element_blank(),
+        axis.title.x = element_text(size = 20, color = "black"),
+        axis.text.y = element_text(size = 20, color = "black"),
+        axis.title.y = element_text(size = 20, color = "black"),
+        legend.title = element_blank(),
+        legend.position = c(0.8, 0.2),
+        legend.key.size = unit(3, "lines"),
+        legend.text = element_text(size = 20),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.key = element_rect(fill = "transparent", color = NA),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 25, color = "black"),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank()
+        )
+
+emotion_velocity <- ggplot(output_df) +
+  geom_line(aes(x = time, y = father_velocity, color = "Father"), color = "#1B9E77", size = 1.5) +
+  geom_line(aes(x = time, y = mother_velocity, color = "Mother"), color = "#D95F02", size = 1.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_color_manual(values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
+  geom_point(data = point_data,
+             aes(x = time, y = father_velocity),
+             color = "#21908CFF", size = 4) +
+  geom_point(data = point_data,
+             aes(x = time, y = mother_velocity),
+             color = "#D95F02", size = 4) +
+  scale_x_continuous(limits = c(0, 15), breaks = seq(0, 15, 3)) +
+  scale_y_continuous(limits = c(-0.6, 0.6), breaks = seq(-1, 1, by = 0.5)) +
+  labs(title = "Velocity", y = "", x = "Time") +
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, size=20, color = "black"),
+        axis.text.x = element_blank(),
+        axis.title.x = element_text(size = 20, color = "black"),
+        axis.text.y = element_text(size = 20, color = "black"),
+        axis.title.y = element_text(size = 20, color = "black"),
+        legend.title = element_blank(),
+        legend.position = c(0.8, 0.2),
+        legend.key.size = unit(3, "lines"),
+        legend.text = element_text(size = 20),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.key = element_rect(fill = "transparent", color = NA),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 25, color = "black"),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank()
+        )
+
+emotion_acc <- ggplot(output_df) +
+  geom_line(aes(x = time, y = father_acceleration, color = "Father"), color = "#1B9E77", size = 1.5) +
+  geom_line(aes(x = time, y = mother_acceleration, color = "Mother"), color = "#D95F02", size = 1.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_color_manual(values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
+  geom_point(data = point_data,
+             aes(x = time, y = father_acceleration),
+             color = "#21908CFF", size = 4) +
+  geom_point(data = point_data,
+             aes(x = time, y = mother_acceleration),
+             color = "#D95F02", size = 4) +
+  scale_x_continuous(limits = c(0, 15), breaks = seq(0, 15, 3)) +
+  scale_y_continuous(limits = c(-0.6, 0.6), breaks = seq(-1, 1, by = 0.5)) +
+  labs(title = "Acceleration", y = "", x = "") +
+  theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5, size=20, color = "black"), 
+        axis.text.x = element_blank(),
+        axis.title.x = element_text(size = 20, color = "black"),
+        axis.text.y = element_text(size = 20, color = "black"),
+        axis.title.y = element_text(size = 20, color = "black"),
+        legend.title = element_blank(),
+        legend.position = c(0.8, 0.2),
+        legend.key.size = unit(3, "lines"),
+        legend.text = element_text(size = 20),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.key = element_rect(fill = "transparent", color = NA),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 25, color = "black"),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank()
+        )
+
+EmotionDynamicsDescription <- plot_grid(emotion_position, emotion_velocity, emotion_acc, nrow = 1)
+
+#ggsave(plot = EmotionDynamicsDescription, filename = here("FinalFigures", "EmotionDynamicsDescription.pdf"), height = 6, width = 12)
+```

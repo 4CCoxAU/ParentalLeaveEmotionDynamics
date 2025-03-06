@@ -1,0 +1,82 @@
+---
+title: "Emotion Dynamics"
+author: ""
+date: "2025-03-06"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Install Packages and Setup Functions
+```{r setup, include=FALSE}
+#install.packages('pacman')
+
+## Load libraries
+library(pacman)
+pacman::p_load(tidyverse,
+               ggcorrplot,
+               ggquiver,
+               job,
+               cowplot,
+               ggrain,
+               here, 
+               brms,
+               readxl,
+               ggridges,
+               viridis,
+               patchwork,
+               ggbeeswarm,
+               bayesplot,
+               bayestestR,
+               see,
+               modelr,
+               xtable,
+               gghalves,
+               gganimate,
+               tidybayes,
+               geosphere,
+               MASS,
+               rmarkdown,
+               imputeTS,
+               deSolve,
+               cmdstanr)
+
+select <- dplyr::select
+summarize <- dplyr::summarise
+```
+
+# Pre-processing Code
+```{r}
+# Note that this pre-processing code will not run on the simulated dataset, but we include the preprocessing steps here for completeness:
+#render(input = here("analysis_scripts", "01_preprocessing.Rmd"), output_file = here("code_output_files", "01_preprocessing_output.pdf"))
+```
+
+# Coupled Oscillator Model
+```{r}
+render(input = here("analysis_scripts", "02_coupledoscillator.Rmd"),
+       output_file = here("code_output_files", "02_coupledoscillator_output.pdf"))
+```
+
+# Control Models
+```{r}
+render(input = here("analysis_scripts", "03_controlmodels.Rmd"),
+       output_file = here("code_output_files", "03_controlmodels_output.pdf"))
+```
+
+# Prior Predictive Checks
+```{r}
+render(input = here("analysis_scripts", "04_priorpredictivechecks.Rmd"),
+       output_file = here("code_output_files", "04_priorpredictivechecks_output.pdf"))
+```
+
+# Simulations of Patterns
+```{r}
+render(input = here("analysis_scripts", "05_simulation.Rmd"),
+       output_file = here("code_output_files", "05_simulation_output.pdf"))
+```
+
+# Visualisation of Raw Data
+```{r}
+render(input = here("analysis_scripts", "06_rawdata.Rmd"),
+       output_file = here("code_output_files", "06_rawdata_output.pdf"))
+```

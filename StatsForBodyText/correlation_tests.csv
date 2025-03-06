@@ -1,0 +1,5 @@
+"","Estimate","CI.Lower","CI.Upper","Evid.Ratio","TestDescription","Hypothesis"
+"1",0.25,0.1,0.4,999,"T1_val_cor","rescor__FatherValences__MotherValences > 0"
+"2",0.26,0.08,0.42,374,"T2_val_cor","rescor__FatherValences__MotherValences > 0"
+"3",0.16,-0.01,0.32,30.58,"T1_aro_cor","rescor__FatherArousals__MotherArousals > 0"
+"4",0.34,0.17,0.51,Inf,"T2_aro_cor","rescor__FatherArousals__MotherArousals > 0"
