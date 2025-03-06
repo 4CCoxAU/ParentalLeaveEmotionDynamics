@@ -14,18 +14,6 @@ This repository contains the analysis pipeline for the following paper: "Followi
 
 ## Getting Started
 
-### Prerequisites
-
-This code was run with:
-- R (version 4.4.1 or higher recommended)
-- RStudio
-- The following main R packages:
-  - brms
-  - dplyr
-  - tidyr
-  - ggplot2
-  - here (for path management)
-
 ### Installation
 
 1. Clone this repository to your local machine
@@ -81,5 +69,40 @@ The data include the following main variables:
 - The preprocessing code is included for completeness but will not run on simulated datasets
 - All scripts use relative paths through the `here()` function, so the project structure should be maintained
 
-## Anonymization of Data
+## Data Anonymization
 Note that due to the sensitive nature of the data (including GPS coordinates, birth dates, and other identifiable information), we cannot publicly share the raw data but instead provide a simulated dataset that preserves the key statistical properties. 
+
+
+## Session Information
+This code was developed and tested with the following environment:
+
+R version 4.4.1 (2024-06-14)
+Platform: x86_64-pc-linux-gnu
+Running under: Ubuntu 22.04.4 LTS
+
+Matrix products: default
+BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 
+LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.20.so;  LAPACK version 3.10.0
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8       
+ [4] LC_COLLATE=en_US.UTF-8     LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
+ [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                  LC_ADDRESS=C              
+[10] LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+time zone: Europe/Berlin
+tzcode source: system (glibc)
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] rstan_2.32.6        StanHeaders_2.32.10 here_1.0.1          cmdstanr_0.8.1      deSolve_1.40       
+ [6] imputeTS_3.3        rmarkdown_2.27      MASS_7.3-60.2       plotly_4.10.4       metR_0.18.0        
+[11] geosphere_1.5-20    mvgam_1.1.4         crqa_2.0.6          gganimate_1.0.9     gghalves_0.1.4     
+[16] xtable_1.8-4        modelr_0.1.11       see_0.10.0          bayestestR_0.15.2   bayesplot_1.11.1   
+[21] ggbeeswarm_0.7.2    patchwork_1.3.0     viridis_0.6.5       viridisLite_0.4.2   ggridges_0.5.6     
+[26] readxl_1.4.3        brms_2.22.0         ggrain_0.0.4        cowplot_1.1.3       job_0.3.1          
+[31] ggquiver_0.3.3      ggcorrplot_0.1.4.1  lubridate_1.9.3     forcats_1.0.0       stringr_1.5.1      
+[36] dplyr_1.1.4         purrr_1.0.2         readr_2.1.5         tidyr_1.3.1         tibble_3.2.1       
+[41] tidyverse_2.0.0     pacman_0.5.1        tidybayes_3.0.7     ggplot2_3.5.1       Rcpp_1.0.14
