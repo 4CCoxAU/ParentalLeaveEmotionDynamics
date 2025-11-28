@@ -585,6 +585,16 @@ extract_all_tests <- function(model) {
                                                   "FatherProxEffectPat",
                                                   "FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate < 0")
   
+  # Co-Regulation Tests
+  mother_prox_effect_change_matpat <- extract_relevant_data(model,
+                                                  "mother_prox_effect_change_matpat",
+                                                  "MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate > MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate")
+
+  father_prox_effect_change_matpat <- extract_relevant_data(model, 
+                                                  "father_prox_effect_change_matpat",
+                                                  "FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate < FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate")
+  
+  
   # Comparing mothers and fathers during maternity leave
   mat_self_reg_compare <- extract_relevant_data(model,
                                                 "MatSelfRegCompare",
@@ -678,19 +688,19 @@ extract_all_tests <- function(model) {
   # Tests for combined effects of proximity and arousal
   mother_prox_arousal_mat <- extract_relevant_data(model,
                                                    "MotherProxArousalMat",
-                                                   "MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate:FatherArousal_s > 0")
+                                                   "(MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate + MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate:FatherArousal_s) > 0")
   
   father_prox_arousal_mat <- extract_relevant_data(model,
                                                    "FatherProxArousalMat",
-                                                   "FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate:MotherArousal_s > 0")
+                                                   "(FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate - FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate:MotherArousal_s) < 0")
   
   mother_prox_arousal_pat <- extract_relevant_data(model,
                                                    "MotherProxArousalPat",
-                                                   "MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate:FatherArousal_s < 0")
+                                                   "(MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate + MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate:FatherArousal_s) < 0")
   
   father_prox_arousal_pat <- extract_relevant_data(model,
                                                    "FatherProxArousalPat",
-                                                   "FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate:MotherArousal_s > 0")
+                                                   "(FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate - FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate:MotherArousal_s) < 0")
   
   # Tests for asymmetry in arousal effects between leave periods
   arousal_asymmetry_mothers <- extract_relevant_data(model,
@@ -708,6 +718,15 @@ extract_all_tests <- function(model) {
   father_vel_coupling_pat <- extract_relevant_data(model,
                                                    "FatherVelCouplingPat", 
                                                    "FatherValenceAcc_LeavePaternityLeave:isProximate:MotherValenceVel > 0")
+  
+  # Co-Regulation Comparison of interpersonal emotions:
+  MotherFatherProxEffectMatCompare <- extract_relevant_data(CoupledOscillatorModel,
+                                                            "MotherFatherProxEffectMatCompare",
+                                                            "MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate > FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate")
+  
+  MotherFatherProxEffectPatCompare <- extract_relevant_data(CoupledOscillatorModel,
+                                                            "MotherFatherProxEffectPatCompare",
+                                                            "MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate > FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate")
   
   # Combine all hypothesis tests into a dataframe
   all_tests <- rbind(
@@ -760,8 +779,11 @@ extract_all_tests <- function(model) {
     mother_prox_arousal_mat, father_prox_arousal_mat,
     mother_prox_arousal_pat, father_prox_arousal_pat,
     
+    mother_prox_effect_change_matpat, father_prox_effect_change_matpat,
+    
     # Arousal asymmetry tests
-    arousal_asymmetry_mothers, arousal_asymmetry_fathers
+    arousal_asymmetry_mothers, arousal_asymmetry_fathers,
+    MotherFatherProxEffectMatCompare, MotherFatherProxEffectPatCompare
   )
   
   return(all_tests)
@@ -1622,3 +1644,255 @@ anonymize_data <- function(original_data) {
   
   return(result)
 }
+
+
+# Function to calculate residual correlations by leave period
+calculate_residual_correlations <- function(model, 
+                                            mother_resp, 
+                                            father_resp,
+                                            mother_var,
+                                            father_var) {
+  # Get posterior predictions
+  post_pred_mother <- posterior_epred(model, resp = mother_resp, ndraws = NULL)
+  post_pred_father <- posterior_epred(model, resp = father_resp, ndraws = NULL)
+  
+  # Extract model data
+  model_data <- model$data
+  
+  # Calculate residual correlations for each posterior draw
+  n_draws <- nrow(post_pred_mother)
+  correlation_results <- vector("list", n_draws)
+  
+  for (i in 1:n_draws) {
+    # Calculate residuals for this draw
+    resid_mother <- model_data[[mother_var]] - post_pred_mother[i, ]
+    resid_father <- model_data[[father_var]] - post_pred_father[i, ]
+    
+    # Create temporary dataframe with residuals and grouping variables
+    temp_df <- data.frame(
+      resid_mother = resid_mother,
+      resid_father = resid_father,
+      Leave = model_data$Leave,
+      isProximate = model_data$isProximate
+    )
+    
+    # Calculate correlations by Leave and isProximate
+    cors <- temp_df %>%
+      group_by(Leave, isProximate) %>%
+      summarise(
+        correlation = cor(resid_mother, resid_father, use = "pairwise.complete.obs"),
+        n = n(),
+        .groups = "drop"
+      ) %>%
+      mutate(draw = i)
+    
+    correlation_results[[i]] <- cors
+  }
+  
+  # Calculate correlations by Leave period (for co-located partners: isProximate == 1)
+  correlation_by_leave <- bind_rows(correlation_results) %>%
+    filter(isProximate == 1) %>%
+    group_by(Leave, draw) %>%
+    summarise(correlation = mean(correlation), .groups = "drop") %>%
+    group_by(Leave) %>%
+    summarise(
+      median_r = median(correlation),
+      lower_95 = quantile(correlation, 0.025),
+      upper_95 = quantile(correlation, 0.975),
+      prob_positive = mean(correlation > 0),
+      prob_negative = mean(correlation < 0),
+      evidence_ratio_positive = mean(correlation > 0) / mean(correlation < 0)
+    )
+  
+  return(correlation_by_leave)
+}
+
+# Function to calculate residual correlations by leave period
+calculate_residual_correlations_surrogate <- function(model, 
+                                            mother_resp, 
+                                            father_resp,
+                                            mother_var,
+                                            father_var) {
+  # Get posterior predictions
+  post_pred_mother <- posterior_epred(model, resp = mother_resp, ndraws = NULL)
+  post_pred_father <- posterior_epred(model, resp = father_resp, ndraws = NULL)
+  
+  # Extract model data
+  model_data <- model$data
+  
+  # Calculate residual correlations for each posterior draw
+  n_draws <- nrow(post_pred_mother)
+  correlation_results <- vector("list", n_draws)
+  
+  for (i in 1:n_draws) {
+    # Calculate residuals for this draw
+    resid_mother <- model_data[[mother_var]] - post_pred_mother[i, ]
+    resid_father <- model_data[[father_var]] - post_pred_father[i, ]
+    
+    # Create temporary dataframe with residuals and grouping variables
+    temp_df <- data.frame(
+      resid_mother = resid_mother,
+      resid_father = resid_father,
+      Leave = model_data$Leave,
+      isProximate = model_data$isProximate
+    )
+    
+    # Calculate correlations by Leave and isProximate
+    cors <- temp_df %>%
+      group_by(Leave, isProximate) %>%
+      summarise(
+        correlation = cor(resid_mother, resid_father, use = "pairwise.complete.obs"),
+        n = n(),
+        .groups = "drop"
+      ) %>%
+      mutate(draw = i)
+    
+    correlation_results[[i]] <- cors
+  }
+  
+  # Calculate correlations by Leave period (for co-located partners: isProximate == 1)
+  correlation_by_leave <- bind_rows(correlation_results) %>%
+    #filter(isProximate == 1) %>%
+    group_by(Leave, draw) %>%
+    summarise(correlation = mean(correlation), .groups = "drop") %>%
+    group_by(Leave) %>%
+    summarise(
+      median_r = median(correlation),
+      lower_95 = quantile(correlation, 0.025),
+      upper_95 = quantile(correlation, 0.975),
+      prob_positive = mean(correlation > 0),
+      prob_negative = mean(correlation < 0),
+      evidence_ratio_positive = mean(correlation > 0) / mean(correlation < 0)
+    )
+  
+  return(correlation_by_leave)
+}
+
+# Function to calculate residual correlations by leave period
+calculate_residual_correlations_farproximity <- function(model, 
+                                                      mother_resp, 
+                                                      father_resp,
+                                                      mother_var,
+                                                      father_var) {
+  # Get posterior predictions
+  post_pred_mother <- posterior_epred(model, resp = mother_resp, ndraws = NULL)
+  post_pred_father <- posterior_epred(model, resp = father_resp, ndraws = NULL)
+  
+  # Extract model data
+  model_data <- model$data
+  
+  # Calculate residual correlations for each posterior draw
+  n_draws <- nrow(post_pred_mother)
+  correlation_results <- vector("list", n_draws)
+  
+  for (i in 1:n_draws) {
+    # Calculate residuals for this draw
+    resid_mother <- model_data[[mother_var]] - post_pred_mother[i, ]
+    resid_father <- model_data[[father_var]] - post_pred_father[i, ]
+    
+    # Create temporary dataframe with residuals and grouping variables
+    temp_df <- data.frame(
+      resid_mother = resid_mother,
+      resid_father = resid_father,
+      Leave = model_data$Leave
+      #isProximate = model_data$isProximate
+    )
+    
+    # Calculate correlations by Leave and isProximate
+    cors <- temp_df %>%
+      group_by(Leave) %>%
+      summarise(
+        correlation = cor(resid_mother, resid_father, use = "pairwise.complete.obs"),
+        n = n(),
+        .groups = "drop"
+      ) %>%
+      mutate(draw = i)
+    
+    correlation_results[[i]] <- cors
+  }
+  
+  # Calculate correlations by Leave period (for co-located partners: isProximate == 1)
+  correlation_by_leave <- bind_rows(correlation_results) %>%
+    #filter(isProximate == 1) %>%
+    group_by(Leave, draw) %>%
+    summarise(correlation = mean(correlation), .groups = "drop") %>%
+    group_by(Leave) %>%
+    summarise(
+      median_r = median(correlation),
+      lower_95 = quantile(correlation, 0.025),
+      upper_95 = quantile(correlation, 0.975),
+      prob_positive = mean(correlation > 0),
+      prob_negative = mean(correlation < 0),
+      evidence_ratio_positive = mean(correlation > 0) / mean(correlation < 0)
+    )
+  
+  return(correlation_by_leave)
+}
+
+create_multiple_surrogates <- function(data, n_surrogates = 2, seed_val = 20) {
+  # Get unique couples
+  couples <- unique(data$CoupleID)
+  
+  # Function to create one surrogate dataset with a given seed
+  create_one_surrogate <- function(i) {  # Changed parameter name
+    set.seed(seed_val + i - 1)  # Use seed_val from parent scope, offset by i
+    shuffled_fathers <- sample(couples)
+    
+    # If any pair matches original, reshuffle
+    while(any(couples == shuffled_fathers)) {
+      shuffled_fathers <- sample(couples)
+    }
+    
+    # Create surrogate dataset
+    surrogate_data <- data
+    
+    # Initialize SurrogateFatherID column with original CoupleID
+    surrogate_data$SurrogateFatherID <- surrogate_data$CoupleID
+    
+    # For each original couple
+    for(j in seq_along(couples)) {  # Changed from i to j to avoid confusion
+      orig_id <- couples[j]
+      surr_id <- shuffled_fathers[j]
+      
+      # Get indices for the current couple
+      orig_indices <- which(data$CoupleID == orig_id)
+      surr_indices <- which(data$CoupleID == surr_id)
+      
+      # Replace father variables with surrogate father data
+      surrogate_data$FatherValence_s[orig_indices] <- data$FatherValence_s[surr_indices]
+      surrogate_data$FatherArousal_s[orig_indices] <- data$FatherArousal_s[surr_indices]
+      surrogate_data$FatherValenceVel[orig_indices] <- data$FatherValenceVel[surr_indices]
+      surrogate_data$FatherValenceAcc[orig_indices] <- data$FatherValenceAcc[surr_indices]
+      
+      # Assign the surrogate father ID to the current couple's rows
+      surrogate_data$SurrogateFatherID[orig_indices] <- surr_id
+    }
+    
+    # Add identifiers
+    surrogate_data$SurrogateID <- paste0("S", seed_val + i - 1)
+    surrogate_data$isSurrogate <- TRUE
+    
+    return(surrogate_data)
+  }
+  
+  # Create all surrogate datasets using different seeds
+  surrogate_list <- map(1:n_surrogates, create_one_surrogate)
+  
+  # Add original data with appropriate identifiers
+  original_data <- data %>%
+    mutate(
+      SurrogateID = "Original",
+      isSurrogate = FALSE,
+      SurrogateFatherID = CoupleID
+    )
+  
+  # Combine all datasets
+  all_data <- bind_rows(surrogate_list) %>%
+    bind_rows(original_data)
+  
+  return(all_data)
+}
+
+
+
+

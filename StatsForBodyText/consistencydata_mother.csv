@@ -1,5 +1,0 @@
-"Leave","n_consistent","n","consistency","consistency_lb","consistency_ub","evidence_ratio","Region"
-"Maternity Leave",147,320,0.46,0.4,0.52,0.85,"LowHighValenceLowArousal_T1"
-"Paternity Leave",73,320,0.23,0.18,0.28,0.3,"LowHighValenceLowArousal_T2"
-"Maternity Leave",312,320,0.98,0.95,0.99,34.78,"LowHighValenceHighArousal_T1"
-"Paternity Leave",180,320,0.56,0.51,0.62,1.28,"LowHighValenceHighArousal_T2"
