@@ -1,8 +1,7 @@
 ---
 title: "06_RawDataVisualisation"
 output: pdf_document
-author: ""
-date: "2025-03-06"
+date: "2025-11-28"
 editor_options: 
   chunk_output_type: console
 ---
@@ -12,7 +11,7 @@ editor_options:
 ```{r}
 ValencePlot_1 <- ggplot(filter(d_T1_multivariate, CoupleID == 47), aes(x = time)) +
     geom_line(aes(y = MotherValence * 100, color = "Mother"), size = 1) +
-    geom_line(aes(y = FatherValence * 100, color = "Father"), size = 1) +
+    geom_line(aes(y = FatherValence * 100, color = "Father"), size = 1, linetype = 4) +
     geom_point(aes(y = MotherValence * 100, color = "Mother"), size = 3) +
     geom_point(aes(y = FatherValence * 100, color = "Father"), size = 3) +
     geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
@@ -43,7 +42,7 @@ ValencePlot_1 <- ggplot(filter(d_T1_multivariate, CoupleID == 47), aes(x = time)
 
 ValencePlot_2 <- ggplot(filter(d_T1_multivariate, CoupleID == 127), aes(x = time)) +
     geom_line(aes(y = MotherValence * 100, color = "Mother"), size = 1) +
-    geom_line(aes(y = FatherValence * 100, color = "Father"), size = 1) +
+    geom_line(aes(y = FatherValence * 100, color = "Father"), size = 1, linetype = 4) +
     geom_point(aes(y = MotherValence * 100, color = "Mother"), size = 3) +
     geom_point(aes(y = FatherValence * 100, color = "Father"), size = 3) +
     geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
@@ -75,7 +74,7 @@ ValencePlot_2 <- ggplot(filter(d_T1_multivariate, CoupleID == 127), aes(x = time
 
 ValencePlot_3 <- ggplot(filter(d_T1_multivariate, CoupleID == 52), aes(x = time)) +
     geom_line(aes(y = MotherValence * 100, color = "Mother"), size = 1) +
-    geom_line(aes(y = FatherValence * 100, color = "Father"), size = 1) +
+    geom_line(aes(y = FatherValence * 100, color = "Father"), size = 1, linetype = 4) +
     geom_point(aes(y = MotherValence * 100, color = "Mother"), size = 3) +
     geom_point(aes(y = FatherValence * 100, color = "Father"), size = 3) +
     geom_vline(xintercept = seq(7, 38, by = 6), linetype = "dashed", alpha = 0.3) +
@@ -137,7 +136,7 @@ ValenceArousalRawData_1 <- ggplot() +
               size = 1) +
     geom_path(data = filter(d_split, CoupleID %in% c(52)), 
               aes(y = FatherValence * 100, x = FatherArousal * 100, color = "Father"), 
-              size = 1) +
+              size = 1, linetype = 4) +
     geom_point(data = filter(d_split, CoupleID %in% c(52)), 
                aes(y = MotherValence * 100, x = MotherArousal * 100, color = "Mother"), 
                size = 2) +
@@ -178,7 +177,7 @@ ValenceArousalRawData_2 <- ggplot() +
               size = 1) +
     geom_path(data = filter(d_split, CoupleID %in% c(127)), 
               aes(y = FatherValence * 100, x = FatherArousal * 100, color = "Father"), 
-              size = 1) +
+              size = 1, linetype = 4) +
     geom_point(data = filter(d_split, CoupleID %in% c(127)), 
                aes(y = MotherValence * 100, x = MotherArousal * 100, color = "Mother"), 
                size = 2) +
@@ -219,7 +218,7 @@ ValenceArousalRawData_3 <- ggplot() +
               size = 1) +
     geom_path(data = filter(d_split, CoupleID %in% c(47)), 
               aes(y = FatherValence * 100, x = FatherArousal * 100, color = "Father"), 
-              size = 1) +
+              size = 1, linetype = 4) +
     geom_point(data = filter(d_split, CoupleID %in% c(47)), 
                aes(y = MotherValence * 100, x = MotherArousal * 100, color = "Mother"), 
                size = 2) +

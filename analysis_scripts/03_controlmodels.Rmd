@@ -1,7 +1,7 @@
 ---
-title: "controlmodels"
-author: ""
-date: "2025-03-06"
+title: "03_controlmodels"
+author: "Chris Cox"
+date: "2025-11-28"
 output: pdf_document
 editor_options: 
   chunk_output_type: console
@@ -10,43 +10,16 @@ editor_options:
 # No Discontinuity Assumption
 
 ```{r, eval = FALSE}
-# Change preprocessing to allow acceleration to persist over days:
-d_multivariate_no_dis <- d_multivariate %>%
-  group_by(CoupleID) %>%
-  arrange(CoupleID, time) %>%
-    mutate(
-      across(
-        c(MotherArousal_s, MotherValence_s, 
-          FatherArousal_s, FatherValence_s),
-        list(
-          Prev = ~lag(.),
-          PrevPrev = ~lag(., 2),
-          PrevPrevPrev = ~lag(., 3),
-          PrevPrevPrevPrev = ~lag(., 4),
-          PrevPrevPrevPrevPrev = ~lag(., 5)
-        )
-      )
-    ) %>%
-  group_by(CoupleID, Leave) %>%
-  arrange(CoupleID, Leave, time) %>%
-  mutate(
-    FatherValenceVel = (FatherValence_s - FatherValence_s_Prev),
-    MotherValenceVel = (MotherValence_s - MotherValence_s_Prev),
-    FatherValenceAcc = (FatherValence_s - 2*FatherValence_s_Prev + FatherValence_s_PrevPrev),
-    MotherValenceAcc = (MotherValence_s - 2*MotherValence_s_Prev + MotherValence_s_PrevPrev)
-  ) %>%
-  ungroup()
-
 CoupledOscillatorModel_no_discontinuity <- brm(
             f_coupled_dynamics_acc,
             data = d_multivariate_no_dis,
             family = gaussian(),
             prior = p_coupled_dynamics, 
             sample_prior = "yes",
-            chains = 2,
+            chains = 4,
             cores = 64,
             warmup = 500,
-            iter = 2000,
+            iter = 5000,
             control = list(adapt_delta = 0.90, max_treedepth = 10),
             backend = 'cmdstan')
 ```
@@ -56,7 +29,723 @@ CoupledOscillatorModel_no_discontinuity <- brm(
 ```{r}
 #CoupledOscillatorModel_no_discontinuity <- readRDS(here("FinalModels", "CoupledOscillatorModel_no_discontinuity.rds"))
 tests_no_discontinuity <- extract_all_tests(CoupledOscillatorModel_no_discontinuity)
-write.csv(tests_no_discontinuity, here("StatsForBodyText", "coupledoscillator_tests_no_discontinuity.csv"), row.names = FALSE)
+#write.csv(tests_no_discontinuity, here("StatsForBodyText", "coupledoscillator_tests_no_discontinuity.csv"), row.names = FALSE)
+```
+
+# ResponseTimePlot
+
+```{r}
+timepoints_long <- d_multivariate %>%
+  filter(!is.na(MotherValenceAcc)) %>%
+  filter(!is.na(FatherValenceAcc)) %>%
+  pivot_longer(
+    cols = c(MotherTimeDecimals, FatherTimeDecimals),
+    names_to = "Parent",
+    values_to = "TimeDecimals"
+  ) %>%
+  mutate(Parent = ifelse(Parent == "MotherTimeDecimals", "Mother", "Father"))
+
+TimeOfDayPlot <- ggplot(filter(timepoints_long, !is.na(isProximate)), aes(x = TimeDecimals, y = Parent, fill = Parent)) +
+  geom_density_ridges(alpha = 0.7, scale = 0.9, bandwidth = 0.9) +
+  scale_fill_manual(values = c("Mother" = "#E1AF00", "Father" = "#0d0887")) +
+  xlab('Time of Day') +
+  ggtitle('Temporal Distribution of Experience Sampling Responses') +
+  scale_x_continuous(breaks = seq(9, 21, 2)) +
+  facet_grid(Leave ~ isProximate, switch = 'y',
+             labeller = labeller(isProximate = c("1" = "Physically Together (< 50m)", "0" = "Physically Separated (> 50m)"))) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold", color = "black"), 
+    plot.subtitle = element_text(size = 15, hjust = 0.5, color = "black"),
+    axis.text.x = element_text(size = 15, color = "black"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(size = 15, color = "black"),
+    axis.title.y = element_blank(),
+    legend.title = element_blank(),
+    legend.position = c(0.5, 0.5),
+    legend.key.size = unit(2, "lines"),
+    legend.text = element_text(size = 15),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.key = element_rect(fill = "transparent", color = NA),
+    strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+    strip.text.x = element_text(size = 15, color = "black"),
+    strip.text.y = element_text(size = 15, color = "black"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.border = element_blank(),
+    strip.placement = "left",
+    panel.spacing = unit(0.3, "cm"),
+    plot.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"))
+
+#ggsave(plot = TimeOfDayPlot, file = 'TimeOfDayPlot.png', height = 12, width = 10)
+#ggsave(plot = TimeOfDayPlot, file = 'TimeOfDayPlot.pdf', height = 12, width = 10)
+```
+
+# Subject-Level Predictions for Maternity Leave
+```{r}
+# ===== Extract couple-specific coefficients =====
+couple_coefs <- coef(CoupledOscillatorModel, summary = FALSE)
+param_names <- dimnames(couple_coefs$CoupleID)[[3]]
+couple_ids <- dimnames(couple_coefs$CoupleID)[[2]]
+
+# Function to extract and prepare coupling data
+extract_coupling_data <- function(param_pattern, couple_ids, couple_coefs, param_names) {
+  param_target <- grep(param_pattern, param_names, value = TRUE)[1]
+  posterior_matrix <- couple_coefs$CoupleID[, , param_target]
+  
+  ridge_data_list <- lapply(seq_len(ncol(posterior_matrix)), function(i) {
+    data.frame(
+      couple_id = couple_ids[i],
+      value = posterior_matrix[, i]
+    )
+  })
+  
+  ridge_data <- bind_rows(ridge_data_list) %>%
+    group_by(couple_id) %>%
+    mutate(
+      q10 = quantile(value, 0),
+      q90 = quantile(value, 1)
+    ) %>%
+    filter(value >= q10 & value <= q90) %>%
+    select(-q10, -q90) %>%
+    ungroup()
+  
+  # Calculate summary stats
+  couple_summary <- ridge_data %>%
+    group_by(couple_id) %>%
+    summarise(
+      median_value = median(value),
+      ci_lower = quantile(value, 0.025),
+      ci_upper = quantile(value, 0.975)
+    ) %>%
+    arrange(median_value) %>%
+    mutate(rank = row_number())
+  
+  list(ridge_data = ridge_data, summary = couple_summary)
+}
+
+# ===== PANEL A: Mother → Father (Co-regulation) =====
+mother_to_father_mat <- extract_coupling_data(
+  "FatherValenceAcc.*LeaveMaternityLeave.*MotherValence_s:isProximate$",
+  couple_ids, couple_coefs, param_names
+)
+
+# Get population effect
+fixef_summary <- fixef(CoupledOscillatorModel, summary = TRUE)
+pop_m_to_f_mat <- fixef_summary[
+  grep("FatherValenceAcc.*LeaveMaternityLeave.*MotherValence_s:isProximate$", 
+       rownames(fixef_summary)), "Estimate"
+]
+
+# Select subset of couples for display
+n_display <- 60
+couple_subset_m2f <- mother_to_father_mat$summary$couple_id[
+  seq(1, nrow(mother_to_father_mat$summary), length.out = n_display)
+]
+
+# Extract population-level posterior samples
+pop_posterior_m2f <- as.data.frame(CoupledOscillatorModel) %>%
+  select(contains("MotherValence_s:isProximate")) %>%
+  select(contains("LeaveMaternityLeave")) %>%
+  select(contains("FatherValenceAcc")) %>%
+  select(-contains("sd")) %>%
+  pivot_longer(everything(), names_to = "param", values_to = "value") %>%
+  mutate(couple_id = "Population Mean")
+
+# Combine with individual data
+combined_data <- mother_to_father_mat$ridge_data %>%
+  filter(couple_id %in% unique(filter(CoupledOscillatorModel$data, Leave == "Maternity Leave")$CoupleID)) %>%
+  mutate(type = "Individual") %>%
+  bind_rows(
+    pop_posterior_m2f %>% mutate(type = "Population")
+  )
+
+# ===== PANEL B: Father → Mother (Leader-Follower) =====
+father_to_mother_mat <- extract_coupling_data(
+  "MotherValenceAcc.*LeaveMaternityLeave.*FatherValence_s:isProximate$",
+  couple_ids, couple_coefs, param_names
+)
+
+# After extracting both father_to_mother_mat AND mother_to_father_mat
+# Create unified ranking based on Father → Mother (mothers' responses)
+unified_ranking <- father_to_mother_mat$summary %>%
+  select(couple_id, rank)
+
+pop_f_to_m_mat <- fixef_summary[
+  grep("MotherValenceAcc.*LeaveMaternityLeave.*FatherValence_s:isProximate$", 
+       rownames(fixef_summary)), "Estimate"
+]
+
+couple_subset_f2m <- father_to_mother_mat$summary$couple_id[
+  seq(1, nrow(father_to_mother_mat$summary), length.out = n_display)
+]
+
+# Combine both directions into one dataset
+combined_coupling <- bind_rows(
+  mother_to_father_mat$ridge_data %>%
+    filter(couple_id %in% unique(filter(CoupledOscillatorModel$data, Leave == "Maternity Leave")$CoupleID)) %>%
+    mutate(Direction = "Mother → Father"),
+  
+  father_to_mother_mat$ridge_data %>%
+    filter(couple_id %in% unique(filter(CoupledOscillatorModel$data, Leave == "Maternity Leave")$CoupleID)) %>%
+    mutate(Direction = "Father → Mother")
+) %>%
+  left_join(unified_ranking, by = "couple_id") %>%
+  mutate(Direction = case_when(
+  Direction == "Mother → Father" ~ "Father Acceleration",
+  Direction == "Father → Mother" ~ "Mother Acceleration"
+))
+  
+
+# Get population means for both
+pop_means <- data.frame(
+  Direction = c("Mother → Father", "Father → Mother"),
+  pop_value = c(pop_m_to_f_mat, pop_f_to_m_mat)
+) %>%
+  mutate(Direction = case_when(
+  Direction == "Mother → Father" ~ "Father Acceleration",
+  Direction == "Father → Mother" ~ "Mother Acceleration"
+))
+
+selected_couples <- combined_coupling %>%
+  distinct(couple_id, rank) %>%
+  filter(rank %% 1 == 0) %>%
+  pull(couple_id)
+
+fig_combined <- ggplot(filter(combined_coupling, couple_id %in% selected_couples), 
+                       aes(x = value, y = reorder(couple_id, rank), 
+                           fill = Direction, color = Direction)) +
+  stat_pointinterval(.width = c(.50, .9), alpha = 0.9,
+                     position = position_dodge(width = 0.7), ymin = 0, ymax = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 1) +
+  geom_vline(data = pop_means, aes(xintercept = pop_value, color = Direction), linetype = "dashed", linewidth = 1, show.legend = F) +
+  scale_fill_manual(values = c("Father Acceleration" = "#fca636", "Mother Acceleration" = "#446455")) +
+  scale_color_manual(values = c("Father Acceleration" = "#fca636", "Mother Acceleration" = "#446455")) +
+  scale_x_continuous(
+  breaks = seq(-0.6, 0.6, 0.3),
+  labels = scales::number_format(accuracy = 0.1)
+) +
+  labs(
+    title = "Maternity Leave",
+    x = NULL,
+    y = "Individual Couples",
+    fill = NULL,
+    color = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 15, color = "black"), 
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "black"),
+    axis.text.x = element_text(size = 15, color = "black"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(size = 15, color = "black"),
+    axis.title.y = element_blank(),
+    legend.title = element_blank(),
+    legend.position = "none",
+    legend.key.size = unit(1, "lines"),
+    legend.text = element_text(size = 15),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.key = element_rect(fill = "transparent", color = NA),
+    strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+    strip.text.x = element_text(size = 15, color = "black"),
+    strip.text.y = element_text(size = 15, color = "black"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.border = element_blank(),
+    strip.placement = "outside",
+    panel.spacing = unit(2, "cm"),
+    plot.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"))
+
+print(fig_combined)
+
+# Mother → Father for PATERNITY
+mother_to_father_pat <- extract_coupling_data(
+  "FatherValenceAcc.*LeavePaternityLeave.*MotherValence_s:isProximate$",
+  couple_ids, couple_coefs, param_names
+)
+# Father → Mother for PATERNITY
+father_to_mother_pat <- extract_coupling_data(
+  "MotherValenceAcc.*LeavePaternityLeave.*FatherValence_s:isProximate$",
+  couple_ids, couple_coefs, param_names
+)
+
+# Get population effect for PATERNITY
+pop_m_to_f_pat <- fixef_summary[
+  grep("FatherValenceAcc.*LeavePaternityLeave.*MotherValence_s:isProximate$",
+       rownames(fixef_summary)), "Estimate"
+]
+
+# Get population effect
+fixef_summary <- fixef(CoupledOscillatorModel, summary = TRUE)
+pop_m_to_f_pat <- fixef_summary[
+  grep("FatherValenceAcc.*LeavePaternityLeave.*MotherValence_s:isProximate$", 
+       rownames(fixef_summary)), "Estimate"
+]
+
+pop_f_to_m_pat <- fixef_summary[
+  grep("MotherValenceAcc.*LeavePaternityLeave.*FatherValence_s:isProximate$", 
+       rownames(fixef_summary)), "Estimate"
+]
+
+# Select subset of couples for display
+n_display <- 60
+couple_subset_m2f <- mother_to_father_pat$summary$couple_id[
+  seq(1, nrow(mother_to_father_pat$summary), length.out = n_display)
+]
+
+# Extract population-level posterior samples
+pop_posterior_m2f <- as.data.frame(CoupledOscillatorModel) %>%
+  select(contains("MotherValence_s:isProximate")) %>%
+  select(contains("LeavePaternityLeave")) %>%
+  select(contains("FatherValenceAcc")) %>%
+  select(-contains("sd")) %>%
+  pivot_longer(everything(), names_to = "param", values_to = "value") %>%
+  mutate(couple_id = "Population Mean")
+
+# Combine with individual data
+combined_data <- mother_to_father_pat$ridge_data %>%
+  filter(couple_id %in% unique(filter(CoupledOscillatorModel$data, Leave == "Paternity Leave")$CoupleID)) %>%
+  mutate(type = "Individual") %>%
+  bind_rows(
+    pop_posterior_m2f %>% mutate(type = "Population")
+  )
+
+# After extracting both father_to_mother_mat AND mother_to_father_mat
+# Create unified ranking based on Father → Mother (mothers' responses)
+unified_ranking <- father_to_mother_pat$summary %>%
+  select(couple_id, rank)
+
+# Combine both directions into one dataset
+combined_coupling <- bind_rows(
+  mother_to_father_pat$ridge_data %>%
+    filter(couple_id %in% unique(filter(CoupledOscillatorModel$data, Leave == "Paternity Leave")$CoupleID)) %>%
+    mutate(Direction = "Mother → Father"),
+  
+  father_to_mother_pat$ridge_data %>%
+    filter(couple_id %in% unique(filter(CoupledOscillatorModel$data, Leave == "Paternity Leave")$CoupleID)) %>%
+    mutate(Direction = "Father → Mother")
+) %>%
+  left_join(unified_ranking, by = "couple_id") %>%
+  mutate(Direction = case_when(
+  Direction == "Mother → Father" ~ "Father Acceleration",
+  Direction == "Father → Mother" ~ "Mother Acceleration"
+))
+  
+pop_means <- data.frame(
+  Direction = c("Mother → Father", "Father → Mother"),
+  pop_value = c(pop_m_to_f_pat, pop_f_to_m_pat)
+) %>%
+  mutate(Direction = case_when(
+  Direction == "Mother → Father" ~ "Father Acceleration",
+  Direction == "Father → Mother" ~ "Mother Acceleration"
+))
+
+selected_couples <- combined_coupling %>%
+  distinct(couple_id, rank) %>%
+  filter(rank %% 1 == 0) %>%
+  pull(couple_id)
+
+fig_combined_pat <- ggplot(filter(combined_coupling, couple_id %in% selected_couples), 
+                       aes(x = value, y = reorder(couple_id, rank), 
+                           fill = Direction, color = Direction)) +
+  stat_pointinterval(.width = c(.50, .9), alpha = 0.9,
+                     position = position_dodge(width = 0.7), ymin = 0, ymax = 0) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 1) +
+  geom_vline(data = pop_means, aes(xintercept = pop_value, color = Direction), linetype = "dashed", linewidth = 1, show.legend = F) +
+  scale_fill_manual(values = c("Father Acceleration" = "#fca636", "Mother Acceleration" = "#446455"),
+                    labels = c("Father Acceleration" = "Father", "Mother Acceleration" = "Mother")) +
+  scale_color_manual(values = c("Father Acceleration" = "#fca636", "Mother Acceleration" = "#446455"),
+                     labels = c("Father Acceleration" = "Father", "Mother Acceleration" = "Mother")) +
+  scale_x_continuous(
+  breaks = seq(-0.6, 0.6, 0.3),
+  labels = scales::number_format(accuracy = 0.1)
+) +
+  labs(
+    title = "Paternity Leave",
+    x = NULL,
+    y = "Individual Couples",
+    fill = NULL,
+    color = NULL
+  ) +
+  guides(
+  fill = guide_legend(
+    title = NULL,
+    override.aes = list(size = 5, linewidth = 5, alpha = 1)
+  ),
+  color = guide_legend(
+    title = NULL,
+    override.aes = list(size = 5, linewidth = 5, alpha = 1)
+  )) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 15, color = "black"), 
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "black"),
+    axis.text.x = element_text(size = 15, color = "black"),
+    axis.text.y = element_blank(),
+    axis.title.x = element_text(size = 15, color = "black"),
+    axis.title.y = element_blank(),
+    legend.title = element_blank(),
+    legend.position = c(0.85, 0.1),
+    legend.key.size = unit(1, "lines"),
+    legend.text = element_text(size = 15),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.key = element_rect(fill = "transparent", color = NA),
+    strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+    strip.text.x = element_text(size = 15, color = "black"),
+    strip.text.y = element_text(size = 15, color = "black"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.border = element_blank(),
+    strip.placement = "outside",
+    panel.spacing = unit(2, "cm"),
+    plot.margin = margin(t = 0.1, r = 0.1, b = 0.9, l = 0.1, unit = "cm"))
+
+# Combine plots horizontally
+combined_plot <- plot_grid(
+  fig_combined, NULL, fig_combined_pat,
+  ncol = 3,           
+  align = 'h',        
+  axis = 'tb',    
+  rel_widths = c(1, 0.05, 1)
+)
+combined_plot
+#ggsave(plot = combined_plot, file = 'CoupleLevelPredictions.png', height = 9.5, width = 7.8)
+#ggsave(plot = combined_plot, file = 'CoupleLevelPredictions.pdf', height = 9.5, width = 7.8)
+```
+
+# Plot of Relation between Arousal and Time of Day at Maternity and Paternity Leave
+
+```{r}
+ArousalPlotTimeOfDay <- ggplot() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.8) +
+    geom_point(aes(x = TimeDecimals.x, y = FatherArousal_s, color = "Father"), 
+               alpha = 0.4, data = d_multivariate, size = 1, 
+               position = position_nudge(x = -.1)) +
+    geom_point(aes(x = TimeDecimals.y, y = MotherArousal_s, color = "Mother"), 
+               alpha = 0.4, data = d_multivariate, size = 1, 
+               position = position_nudge(x = .1)) +
+    geom_smooth(aes(x = TimeDecimals.y, y = MotherArousal_s, color = "Mother"), 
+                data = d_multivariate) +
+    geom_smooth(aes(x = TimeDecimals.x, y = FatherArousal_s, color = "Father"), 
+                data = d_multivariate) +
+    scale_x_continuous(breaks = seq(9, 22, 3), limits = c(9, 22)) +
+    scale_y_continuous(breaks = seq(-2, 2, 1), limits = c(-2.5, 2.5)) +
+    scale_color_manual(name = "Role",
+                      values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
+    facet_wrap(~Leave) +
+    ylab('Arousal') + xlab('Time of Day') + ggtitle('') +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = -20)),
+      axis.text.x = element_text(size = 20, color = "black", margin = margin(t = -20)),
+      axis.title.x = element_text(size = 20), 
+      axis.text.y = element_text(size = 20, color = "black", margin = margin(t = -20)),
+      axis.title.y = element_text(size = 20),
+      axis.ticks = element_blank(),
+      legend.position = "none",
+      legend.text = element_text(size = 15),
+      legend.title = element_blank(),
+      legend.direction = "horizontal",
+      axis.line.y = element_blank(),
+      axis.line.x = element_blank(),
+      legend.key = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      strip.background = element_rect(
+        color = "white", 
+        fill = "white", 
+        linewidth = 1.5, 
+        linetype = "solid"
+      ),
+      strip.text.x = element_text(size = 20, color = "black"),
+      plot.margin = margin(1, 1, 1, 1, "cm"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+
+ValencePlotTimeOfDay <- ggplot() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.8) +
+    geom_point(aes(x = TimeDecimals.x, y = FatherValence_s, color = "Father"), 
+               alpha = 0.4, data = d_multivariate, size = 1, 
+               position = position_nudge(x = -.1)) +
+    geom_point(aes(x = TimeDecimals.y, y = MotherValence_s, color = "Mother"), 
+               alpha = 0.4, data = d_multivariate, size = 1, 
+               position = position_nudge(x = .1)) +
+    geom_smooth(aes(x = TimeDecimals.y, y = MotherValence_s, color = "Mother"), 
+                data = d_multivariate) +
+    geom_smooth(aes(x = TimeDecimals.x, y = FatherValence_s, color = "Father"), 
+                data = d_multivariate) +
+    scale_x_continuous(breaks = seq(9, 22, 3), limits = c(9, 22)) +
+    scale_y_continuous(breaks = seq(-2, 2, 1), limits = c(-2.5, 2.5)) +
+    scale_color_manual(name = "Role",
+                      values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
+    facet_wrap(~Leave) +
+    ylab('Valence') + xlab('Time of Day') + ggtitle('') +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = -20)),
+      axis.text.x = element_text(size = 20, color = "black", margin = margin(t = -20)),
+      axis.title.x = element_text(size = 20), 
+      axis.text.y = element_text(size = 20, color = "black", margin = margin(t = -20)),
+      axis.title.y = element_text(size = 20),
+      axis.ticks = element_blank(),
+      legend.position = c(0.5, -0.2),
+      legend.text = element_text(size = 15),
+      legend.title = element_blank(),
+      legend.direction = "horizontal",
+      axis.line.y = element_blank(),
+      axis.line.x = element_blank(),
+      legend.key = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      strip.background = element_rect(
+        color = "white", 
+        fill = "white", 
+        linewidth = 1.5, 
+        linetype = "solid"
+      ),
+      strip.text.x = element_text(size = 20, color = "black"),
+      plot.margin = margin(1, 1, 1, 1, "cm"),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+
+PlotTimeOfDay <- plot_grid(ValencePlotTimeOfDay, ArousalPlotTimeOfDay, nrow = 2)
+PlotTimeOfDay
+
+#ggsave(plot = PlotTimeOfDay, file = here("FinalFigures", "PlotTimeOfDay.pdf"), height = 12, width = 9)
+```
+
+# When Parents are Physically Distant
+```{r, eval = FALSE}
+f_coupled_dynamics_acc <- mvbf(
+    FatherValence_s ~ 0 + Leave + (Leave | CoupleID),
+    MotherValence_s ~ 0 + Leave + (Leave | CoupleID),
+    FatherArousal_s ~ 0 + Leave + (Leave | CoupleID),
+    MotherArousal_s ~ 0 + Leave + (Leave | CoupleID),
+    FatherValenceVel ~ 0 + Leave + (Leave | CoupleID),
+    MotherValenceVel ~ 0 + Leave + (Leave | CoupleID),
+    FatherValenceAcc ~ 0 + Leave +
+                       Leave:FatherValence_s + Leave:FatherValenceVel +
+                       Leave:MotherValence_s  + Leave:MotherValenceVel +
+                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
+                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
+                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s | CoupleID),
+    
+    MotherValenceAcc ~ 0 + Leave +
+                       Leave:MotherValence_s + Leave:MotherValenceVel +
+                       Leave:FatherValence_s + Leave:FatherValenceVel +
+                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
+                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
+                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s | CoupleID))
+
+CoupledOscillatorModel_farproximity <- brm(
+            f_coupled_dynamics_acc,
+            data = filter(d_multivariate, isProximate == 0),
+            family = gaussian(),
+            prior = p_coupled_dynamics, 
+            sample_prior = "yes",
+            chains = 4,
+            cores = 64,
+            warmup = 500,
+            iter = 5000,
+            control = list(adapt_delta = 0.99, max_treedepth = 15),
+            backend = 'cmdstan')
+```
+
+## Extract Estimates for Supplementary Materials
+
+```{r}
+coupledoscillator_tests_distant <- extract_all_tests_distant_parents(CoupledOscillatorModel_farproximity)
+#write.csv(coupledoscillator_tests_distant, here("StatsForBodyText", "coupledoscillator_tests_distant.csv"), row.names = FALSE)
+
+far_prox_val_cor <- extract_residual_valence_correlation(
+  model = CoupledOscillatorModel_farproximity, 
+  TestDescription = "far_prox_val_cor"
+)
+
+far_prox_aro_cor <- extract_residual_arousal_correlation(
+  model = CoupledOscillatorModel_farproximity, 
+  TestDescription = "far_prox_aro_cor"
+)
+
+phasespace_tests_control <- rbind(far_prox_val_cor, far_prox_aro_cor)
+
+# Extract correlations for when partners are proximate:
+correlation_by_leave <- calculate_residual_correlations_farproximity(
+  model = CoupledOscillatorModel_farproximity,
+  mother_resp = "MotherValences",
+  father_resp = "FatherValences",
+  mother_var = "MotherValence_s",
+  father_var = "FatherValence_s"
+)
+
+#write.csv(phasespace_tests_control, here("StatsForBodyText", "correlation_test_farproximity.csv"))
+```
+
+# Surrogate Couples
+
+```{r, eval = FALSE}
+# Identify couples who participated in both leave periods
+both_periods_couples <- d_multivariate %>%
+  group_by(CoupleID) %>%
+  summarise(n_datapoints = n()) %>%
+  filter(n_datapoints == 84) %>%
+  pull(CoupleID)
+
+# Filter the data to include only these couples
+d_multivariate_both_periods <- d_multivariate %>%
+  filter(CoupleID %in% both_periods_couples)
+
+surrogates_both_periods_S2 <- create_multiple_surrogates(d_multivariate_both_periods, n_surrogates = 1, seed_val = 10) %>%
+  filter(isSurrogate == TRUE)
+
+CoupledOscillatorModel_surrogate <- brm(
+            f_coupled_dynamics_acc,
+            data = surrogates_both_periods_S2,
+            family = gaussian(),
+            prior = p_coupled_dynamics, 
+            sample_prior = "yes",
+            chains = 4,
+            cores = 64,
+            warmup = 500,
+            iter = 5000,
+            control = list(adapt_delta = 0.99, max_treedepth = 19),
+            backend = 'cmdstan')
+```
+
+## Extract Estimates for Supplementary Materials
+
+```{r}
+#CoupledOscillatorModel_surrogate <- readRDS(here("FinalModels", "CoupledOscillatorModel_surrogate.rds"))
+tests_surrogate <- extract_all_tests(CoupledOscillatorModel_surrogate)
+#write.csv(tests_surrogate, here("StatsForBodyText", "coupledoscillator_tests_surrogate.csv"), row.names = FALSE)
+
+# Extract correlations:
+correlation_by_leave <- calculate_residual_correlations_surrogate(
+  model = CoupledOscillatorModel_surrogate,
+  mother_resp = "MotherValences",
+  father_resp = "FatherValences",
+  mother_var = "MotherValence_s",
+  father_var = "FatherValence_s"
+)
+
+correlation_by_leave_arousal <- calculate_residual_correlations_surrogate(
+  model = CoupledOscillatorModel_surrogate,
+  mother_resp = "MotherArousals",
+  father_resp = "FatherArousals",
+  mother_var = "MotherArousal_s",
+  father_var = "FatherArousal_s"
+)
+
+valence_cor <- correlation_by_leave %>%
+  rename("Estimate" = median_r,
+         "CI.Lower" = lower_95,
+         "CI.Upper" = upper_95,
+         "Evid.Ratio" = evidence_ratio_positive) %>%
+  select(-prob_positive, -prob_negative) %>%
+  mutate(Estimate = round(Estimate, 2),
+         CI.Lower = round(CI.Lower, 2),
+         CI.Upper = round(CI.Upper, 2),
+         Evid.Ratio = round(Evid.Ratio, 2)) %>%
+  mutate(TestDescription = c("T1_val_cor", "T2_val_cor"))
+
+arousal_cor <- correlation_by_leave_arousal %>%
+  rename("Estimate" = median_r,
+         "CI.Lower" = lower_95,
+         "CI.Upper" = upper_95,
+         "Evid.Ratio" = evidence_ratio_positive) %>%
+  select(-prob_positive, -prob_negative) %>%
+  mutate(Estimate = round(Estimate, 2),
+         CI.Lower = round(CI.Lower, 2),
+         CI.Upper = round(CI.Upper, 2),
+         Evid.Ratio = round(Evid.Ratio, 2)) %>%
+  mutate(TestDescription = c("T1_aro_cor", "T2_aro_cor"))
+
+cor_proximate <- rbind(valence_cor, arousal_cor)
+#write.csv(cor_proximate, here("StatsForBodyText", "correlation_tests_surrogate.csv"))
+```
+
+# Controlling for Time Difference
+```{r, eval = FALSE}
+f_coupled_dynamics_acc_time <- mvbf(
+    FatherValence_s ~ 0 + Leave + (Leave | CoupleID),
+    MotherValence_s ~ 0 + Leave + (Leave | CoupleID),
+    FatherArousal_s ~ 0 + Leave + (Leave | CoupleID),
+    MotherArousal_s ~ 0 + Leave + (Leave | CoupleID),
+    FatherValenceVel ~ 0 + Leave + (Leave | CoupleID),
+    MotherValenceVel ~ 0 + Leave + (Leave | CoupleID),
+    
+    # Modified acceleration equations with time difference interactions
+    FatherValenceAcc ~ 0 + Leave +
+                       Leave:FatherValence_s + Leave:FatherValenceVel +
+                       Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
+                       Leave:MotherValence_s:isProximate:TimeDifference_s + Leave:MotherValenceVel:isProximate:TimeDifference_s +
+                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
+                       Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
+                       Leave:MotherValence_s:isProximate:MotherArousal_s:TimeDifference_s + Leave:MotherValenceVel:isProximate:MotherArousal_s:TimeDifference_s +
+                      (Leave:FatherValence_s + Leave:FatherValenceVel + 
+                       Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
+                       Leave:MotherValence_s:isProximate:TimeDifference_s + Leave:MotherValenceVel:isProximate:TimeDifference_s +
+                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
+                       Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
+                       Leave:MotherValence_s:isProximate:MotherArousal_s:TimeDifference_s + Leave:MotherValenceVel:isProximate:MotherArousal_s:TimeDifference_s | CoupleID),
+    
+    MotherValenceAcc ~ 0 + Leave +
+                       Leave:MotherValence_s + Leave:MotherValenceVel +
+                       Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
+                       Leave:FatherValence_s:isProximate:TimeDifference_s + Leave:FatherValenceVel:isProximate:TimeDifference_s +
+                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
+                       Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
+                       Leave:FatherValence_s:isProximate:FatherArousal_s:TimeDifference_s + Leave:FatherValenceVel:isProximate:FatherArousal_s:TimeDifference_s +
+                      (Leave:MotherValence_s + Leave:MotherValenceVel + 
+                       Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
+                       Leave:FatherValence_s:isProximate:TimeDifference_s + Leave:FatherValenceVel:isProximate:TimeDifference_s +
+                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
+                       Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
+                       Leave:FatherValence_s:isProximate:FatherArousal_s:TimeDifference_s + Leave:FatherValenceVel:isProximate:FatherArousal_s:TimeDifference_s | CoupleID))
+
+p_coupled_dynamics <- c(
+  prior(normal(0, 2), class = "b", resp = "FatherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "FatherValences"),
+  prior(normal(0, 2), class = "b", resp = "FatherValenceVel"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "MotherValences"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceVel"),
+  prior(normal(1, 2), class = "sd", resp = "FatherValenceAcc"),
+  prior(normal(1, 2), class = "sd", resp = "FatherValences"),
+  prior(normal(1, 2), class = "sd", resp = "FatherValenceVel"),
+  prior(normal(1, 2), class = "sd", resp = "MotherValenceAcc"),
+  prior(normal(1, 2), class = "sd", resp = "MotherValences"),
+  prior(normal(1, 2), class = "sd", resp = "MotherValenceVel"),
+  prior(normal(1, 2), class = "sigma", resp = "FatherValenceAcc"),
+  prior(normal(1, 2), class = "sigma", resp = "FatherValences"),
+  prior(normal(1, 2), class = "sigma", resp = "FatherValenceVel"),
+  prior(normal(1, 2), class = "sigma", resp = "MotherValenceAcc"),
+  prior(normal(1, 2), class = "sigma", resp = "MotherValences"),
+  prior(normal(1, 2), class = "sigma", resp = "MotherValenceVel"),
+  prior(lkj(2), class = "rescor")
+)
+
+CoupledOscillatorModel_time <- brm(
+            f_coupled_dynamics_acc_time,
+            data = d_multivariate,
+            family = gaussian(),
+            prior = p_coupled_dynamics, 
+            sample_prior = "yes",
+            chains = 4,
+            cores = 64,
+            warmup = 500,
+            iter = 5000,
+            control = list(adapt_delta = 0.90, max_treedepth = 15),
+            backend = 'cmdstan')
+```
+
+## Extract Estimates for Supplementary Materials
+
+```{r}
+#CoupledOscillatorModel_time <- readRDS(here("FinalModels", "CoupledOscillatorModel_time.rds"))
+tests_time <- extract_all_tests_time_model(CoupledOscillatorModel_time)
+#write.csv(tests_time, here("StatsForBodyText", "coupledoscillator_tests_time.csv"), row.names = FALSE)
 ```
 
 # Carry Non-Missing Values Forward
@@ -82,7 +771,6 @@ d_multivariate_CarryForwardNonNAs <- d_multivariate %>%
       MotherValence_s
     )
   ) %>%
-  # Now proceed with the rest of preprocessing
   mutate(
     across(
       c(MotherArousal_s, MotherValence_s, 
@@ -126,17 +814,22 @@ f_coupled_dynamics_acc <- mvbf(
                        Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
                        Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
                        Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
-                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s | CoupleID / StudyDay),
+                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s | CoupleID),
     
     MotherValenceAcc ~ 0 + Leave +
                        Leave:MotherValence_s + Leave:MotherValenceVel +
                        Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
                        Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
                        Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
-                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s | CoupleID / StudyDay))
+                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s | CoupleID))
 
 p_coupled_dynamics <- c(
-  prior(normal(0, 2), class = "b"),
+  prior(normal(0, 2), class = "b", resp = "FatherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "FatherValences"),
+  prior(normal(0, 2), class = "b", resp = "FatherValenceVel"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "MotherValences"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceVel"),
   prior(normal(1, 2), class = "sd", resp = "FatherValenceAcc"),
   prior(normal(1, 2), class = "sd", resp = "FatherValences"),
   prior(normal(1, 2), class = "sd", resp = "FatherValenceVel"),
@@ -158,10 +851,10 @@ CoupledOscillatorModel_CarryForwardNonNAs <- brm(
             family = gaussian(),
             prior = p_coupled_dynamics, 
             sample_prior = "yes",
-            chains = 2,
+            chains = 4,
             cores = 64,
             warmup = 500,
-            iter = 2000,
+            iter = 5000,
             control = list(adapt_delta = 0.90, max_treedepth = 10),
             backend = 'cmdstan')
 ```
@@ -171,502 +864,6 @@ CoupledOscillatorModel_CarryForwardNonNAs <- brm(
 ```{r}
 #CoupledOscillatorModel_CarryForwardNonNAs <- readRDS(here("FinalModels", "CoupledOscillatorModel_CarryForwardNonNAs.rds"))
 tests_CFNA <- extract_all_tests(CoupledOscillatorModel_CarryForwardNonNAs)
-write.csv(tests_CFNA, here("StatsForBodyText", "coupledoscillator_tests_CFNA.csv"), row.names = FALSE)
+#write.csv(tests_CFNA, here("StatsForBodyText", "coupledoscillator_tests_CFNA.csv"), row.names = FALSE)
 ```
 
-# Kalman imputation
-
-```{r, eval = FALSE}
-d_multivariate_imputed <- d_multivariate %>%
-  group_by(CoupleID) %>%
-  arrange(time) %>%
-  mutate(
-    MotherValence_s = safe_kalman(MotherValence_s),
-    FatherValence_s = safe_kalman(FatherValence_s),
-    MotherArousal_s = safe_kalman(MotherArousal_s),
-    FatherArousal_s = safe_kalman(FatherArousal_s)
-  ) %>%
-  ungroup() %>%
-  mutate(
-    across(
-      c(MotherArousal_s, MotherValence_s, 
-        FatherArousal_s, FatherValence_s),
-      list(
-        Prev = ~lag(.),
-        PrevPrev = ~lag(., 2),
-        PrevPrevPrev = ~lag(., 3),
-        PrevPrevPrevPrev = ~lag(., 4),
-        PrevPrevPrevPrevPrev = ~lag(., 5)
-      )
-    )
-  ) %>%
-  ungroup() %>%
-  arrange(CoupleID, Leave, time) %>%
-  group_by(CoupleID, Leave) %>%
-  arrange(CoupleID, Leave, time) %>%
-  mutate(
-    FatherValenceVel = (FatherValence_s - FatherValence_s_Prev),
-    MotherValenceVel = (MotherValence_s - MotherValence_s_Prev),
-    FatherValenceAcc = (FatherValence_s - 2*FatherValence_s_Prev + FatherValence_s_PrevPrev),
-    MotherValenceAcc = (MotherValence_s - 2*MotherValence_s_Prev + MotherValence_s_PrevPrev)
-  ) %>%
-  ungroup()
-  
-CoupledOscillatorModel_kalman <- brm(
-            f_coupled_dynamics_acc,
-            data = d_multivariate_imputed,
-            family = gaussian(),
-            prior = p_coupled_dynamics, 
-            sample_prior = "yes",
-            chains = 2,
-            cores = 64,
-            warmup = 500,
-            iter = 2000,
-            control = list(adapt_delta = 0.90, max_treedepth = 10),
-            backend = 'cmdstan')
-```
-
-## Extract Estimates for Supplementary Materials
-
-```{r}
-#CoupledOscillatorModel_kalman <- readRDS(here("FinalModels", "CoupledOscillatorModel_kalman.rds"))
-tests_kalman <- extract_all_tests(CoupledOscillatorModel_kalman)
-write.csv(tests_kalman, here("StatsForBodyText", "coupledoscillator_tests_kalman.csv"), row.names = FALSE)
-```
-
-# Controlling for Time Difference
-```{r, eval = FALSE}
-f_coupled_dynamics_acc_time <- mvbf(
-    FatherValence_s ~ 0 + Leave + (Leave | CoupleID),
-    MotherValence_s ~ 0 + Leave + (Leave | CoupleID),
-    FatherArousal_s ~ 0 + Leave + (Leave | CoupleID),
-    MotherArousal_s ~ 0 + Leave + (Leave | CoupleID),
-    FatherValenceVel ~ 0 + Leave + (Leave | CoupleID),
-    MotherValenceVel ~ 0 + Leave + (Leave | CoupleID),
-    
-    # Modified acceleration equations with time difference interactions
-    FatherValenceAcc ~ 0 + Leave +
-                       Leave:FatherValence_s + Leave:FatherValenceVel +
-                       Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
-                       Leave:MotherValence_s:isProximate:TimeDifference_s + Leave:MotherValenceVel:isProximate:TimeDifference_s +
-                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
-                       Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
-                       Leave:MotherValence_s:isProximate:MotherArousal_s:TimeDifference_s + Leave:MotherValenceVel:isProximate:MotherArousal_s:TimeDifference_s +
-                      (Leave:FatherValence_s + Leave:FatherValenceVel + 
-                       Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
-                       Leave:MotherValence_s:isProximate:TimeDifference_s + Leave:MotherValenceVel:isProximate:TimeDifference_s +
-                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
-                       Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
-                       Leave:MotherValence_s:isProximate:MotherArousal_s:TimeDifference_s + Leave:MotherValenceVel:isProximate:MotherArousal_s:TimeDifference_s | CoupleID / StudyDay),
-    
-    MotherValenceAcc ~ 0 + Leave +
-                       Leave:MotherValence_s + Leave:MotherValenceVel +
-                       Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
-                       Leave:FatherValence_s:isProximate:TimeDifference_s + Leave:FatherValenceVel:isProximate:TimeDifference_s +
-                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
-                       Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
-                       Leave:FatherValence_s:isProximate:FatherArousal_s:TimeDifference_s + Leave:FatherValenceVel:isProximate:FatherArousal_s:TimeDifference_s +
-                      (Leave:MotherValence_s + Leave:MotherValenceVel + 
-                       Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
-                       Leave:FatherValence_s:isProximate:TimeDifference_s + Leave:FatherValenceVel:isProximate:TimeDifference_s +
-                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
-                       Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
-                       Leave:FatherValence_s:isProximate:FatherArousal_s:TimeDifference_s + Leave:FatherValenceVel:isProximate:FatherArousal_s:TimeDifference_s | CoupleID / StudyDay))
-
-p_coupled_dynamics <- c(
-  prior(normal(0, 2), class = "b"),
-  prior(normal(1, 2), class = "sd", resp = "FatherValenceAcc"),
-  prior(normal(1, 2), class = "sd", resp = "FatherValences"),
-  prior(normal(1, 2), class = "sd", resp = "FatherValenceVel"),
-  prior(normal(1, 2), class = "sd", resp = "MotherValenceAcc"),
-  prior(normal(1, 2), class = "sd", resp = "MotherValences"),
-  prior(normal(1, 2), class = "sd", resp = "MotherValenceVel"),
-  prior(normal(1, 2), class = "sigma", resp = "FatherValenceAcc"),
-  prior(normal(1, 2), class = "sigma", resp = "FatherValences"),
-  prior(normal(1, 2), class = "sigma", resp = "FatherValenceVel"),
-  prior(normal(1, 2), class = "sigma", resp = "MotherValenceAcc"),
-  prior(normal(1, 2), class = "sigma", resp = "MotherValences"),
-  prior(normal(1, 2), class = "sigma", resp = "MotherValenceVel"),
-  prior(lkj(2), class = "rescor")
-)
-
-CoupledOscillatorModel_time <- brm(
-            f_coupled_dynamics_acc_time,
-            data = d_multivariate,
-            family = gaussian(),
-            prior = p_coupled_dynamics, 
-            sample_prior = "yes",
-            chains = 2,
-            cores = 64,
-            warmup = 500,
-            iter = 2000,
-            control = list(adapt_delta = 0.90, max_treedepth = 10),
-            backend = 'cmdstan')
-```
-
-## Extract Estimates for Supplementary Materials
-
-```{r}
-#CoupledOscillatorModel_time <- readRDS(here("FinalModels", "CoupledOscillatorModel_time.rds"))
-tests_time <- extract_all_tests_time_model(CoupledOscillatorModel_time)
-write.csv(tests_time, here("StatsForBodyText", "coupledoscillator_tests_time.csv"), row.names = FALSE)
-```
-
-# When Parents are Physically Distant
-```{r, eval = FALSE}
-f_coupled_dynamics_acc <- mvbf(
-    FatherValence_s ~ 0 + Leave + (Leave | CoupleID),
-    MotherValence_s ~ 0 + Leave + (Leave | CoupleID),
-    FatherArousal_s ~ 0 + Leave + (Leave | CoupleID),
-    MotherArousal_s ~ 0 + Leave + (Leave | CoupleID),
-    FatherValenceVel ~ 0 + Leave + (Leave | CoupleID),
-    MotherValenceVel ~ 0 + Leave + (Leave | CoupleID),
-    FatherValenceAcc ~ 0 + Leave +
-                       Leave:FatherValence_s + Leave:FatherValenceVel +
-                       Leave:MotherValence_s  + Leave:MotherValenceVel +
-                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
-                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
-                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s | CoupleID),
-    
-    MotherValenceAcc ~ 0 + Leave +
-                       Leave:MotherValence_s + Leave:MotherValenceVel +
-                       Leave:FatherValence_s + Leave:FatherValenceVel +
-                       Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
-                       Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
-                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s | CoupleID))
-
-CoupledOscillatorModel_farproximity <- brm(
-            f_coupled_dynamics_acc,
-            data = filter(d_multivariate, isProximate == 0),
-            family = gaussian(),
-            prior = p_coupled_dynamics, 
-            sample_prior = "yes",
-            chains = 2,
-            cores = 64,
-            warmup = 500,
-            iter = 2000,
-            control = list(adapt_delta = 0.99, max_treedepth = 15),
-            backend = 'cmdstan')
-```
-
-## Extract Estimates for Supplementary Materials
-
-```{r}
-#CoupledOscillatorModel_farproximity <- readRDS(here("FinalModels", "CoupledOscillatorModel_farproximity.rds"))
-coupledoscillator_tests_distant <- extract_all_tests_distant_parents(CoupledOscillatorModel_farproximity)
-write.csv(coupledoscillator_tests_distant, here("StatsForBodyText", "coupledoscillator_tests_distant.csv"), row.names = FALSE)
-```
-
-## Plot of Relation between Arousal and Time of Day at Maternity and Paternity Leave
-```{r}
-ArousalPlotTimeOfDay <- ggplot() +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.8) +
-    # Add groups with different names in aes() to create legend entries
-    geom_point(aes(x = TimeDecimals.x, y = FatherArousal_s, color = "Father"), 
-               alpha = 0.4, data = d_multivariate, size = 1, 
-               position = position_nudge(x = -.1)) +
-    geom_point(aes(x = TimeDecimals.x, y = MotherArousal_s, color = "Mother"), 
-               alpha = 0.4, data = d_multivariate, size = 1, 
-               position = position_nudge(x = .1)) +
-    geom_smooth(aes(x = TimeDecimals.x, y = MotherArousal_s, color = "Mother"), 
-                data = d_multivariate) +
-    geom_smooth(aes(x = TimeDecimals.x, y = FatherArousal_s, color = "Father"), 
-                data = d_multivariate) +
-    scale_x_continuous(breaks = seq(9, 22, 3), limits = c(9, 22)) +
-    scale_y_continuous(breaks = seq(-2, 2, 1), limits = c(-2.5, 2.5)) +
-    scale_color_manual(name = "Role",
-                      values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
-    facet_wrap(~Leave) +
-    ylab('Arousal') + xlab('Time of Day') + ggtitle('') +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = -20)),
-      axis.text.x = element_text(size = 20, color = "black", margin = margin(t = -20)),
-      axis.title.x = element_text(size = 20), 
-      axis.text.y = element_text(size = 20, color = "black", margin = margin(t = -20)),
-      axis.title.y = element_text(size = 20),
-      axis.ticks = element_blank(),
-      legend.position = "none",
-      legend.text = element_text(size = 15),
-      legend.title = element_blank(),
-      legend.direction = "horizontal",
-      axis.line.y = element_blank(),
-      axis.line.x = element_blank(),
-      legend.key = element_rect(fill = "transparent", color = NA),
-      legend.background = element_rect(fill = "transparent", color = NA),
-      strip.background = element_rect(
-        color = "white", 
-        fill = "white", 
-        linewidth = 1.5, 
-        linetype = "solid"
-      ),
-      strip.text.x = element_text(size = 20, color = "black"),
-      plot.margin = margin(1, 1, 1, 1, "cm"),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
-    )
-
-ValencePlotTimeOfDay <- ggplot() +
-    geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.8) +
-    geom_point(aes(x = TimeDecimals.x, y = FatherValence_s, color = "Father"), 
-               alpha = 0.4, data = d_multivariate, size = 1, 
-               position = position_nudge(x = -.1)) +
-    geom_point(aes(x = TimeDecimals.x, y = MotherValence_s, color = "Mother"), 
-               alpha = 0.4, data = d_multivariate, size = 1, 
-               position = position_nudge(x = .1)) +
-    geom_smooth(aes(x = TimeDecimals.x, y = MotherValence_s, color = "Mother"), 
-                data = d_multivariate) +
-    geom_smooth(aes(x = TimeDecimals.x, y = FatherValence_s, color = "Father"), 
-                data = d_multivariate) +
-    scale_x_continuous(breaks = seq(9, 22, 3), limits = c(9, 22)) +
-    scale_y_continuous(breaks = seq(-2, 2, 1), limits = c(-2.5, 2.5)) +
-    scale_color_manual(name = "Role",
-                      values = c("Father" = "#21908CFF", "Mother" = "#D95F02")) +
-    facet_wrap(~Leave) +
-    ylab('Valence') + xlab('Time of Day') + ggtitle('') +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = -20)),
-      axis.text.x = element_text(size = 20, color = "black", margin = margin(t = -20)),
-      axis.title.x = element_text(size = 20), 
-      axis.text.y = element_text(size = 20, color = "black", margin = margin(t = -20)),
-      axis.title.y = element_text(size = 20),
-      axis.ticks = element_blank(),
-      legend.position = c(0.5, -0.2),
-      legend.text = element_text(size = 15),
-      legend.title = element_blank(),
-      legend.direction = "horizontal",
-      axis.line.y = element_blank(),
-      axis.line.x = element_blank(),
-      legend.key = element_rect(fill = "transparent", color = NA),
-      legend.background = element_rect(fill = "transparent", color = NA),
-      strip.background = element_rect(
-        color = "white", 
-        fill = "white", 
-        linewidth = 1.5, 
-        linetype = "solid"
-      ),
-      strip.text.x = element_text(size = 20, color = "black"),
-      plot.margin = margin(1, 1, 1, 1, "cm"),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
-    )
-
-PlotTimeOfDay <- plot_grid(ValencePlotTimeOfDay, ArousalPlotTimeOfDay, nrow = 2)
-
-ggsave(plot = PlotTimeOfDay, file = here("FinalFigures", "PlotTimeOfDay.pdf"), height = 12, width = 9)
-```
-
-# Surrogate Couples
-
-```{r, eval = FALSE}
-# Identify couples who participated in both leave periods
-both_periods_couples <- d_multivariate %>%
-  group_by(CoupleID) %>%
-  summarise(n_datapoints = n()) %>%
-  filter(n_datapoints == 84) %>%
-  pull(CoupleID)
-
-# Filter the data to include only these couples
-d_multivariate_both_periods <- d_multivariate %>%
-  filter(CoupleID %in% both_periods_couples)
-
-create_multiple_surrogates <- function(data, n_surrogates = 2, seed_val = 51) {
-  # Get unique couples
-  couples <- unique(data$CoupleID)
-  
-  # Function to create one surrogate dataset with a given seed
-  create_one_surrogate <- function(seed_val) {
-    set.seed(seed_val)
-    shuffled_fathers <- sample(couples)
-    
-    # If any pair matches original, reshuffle
-    while(any(couples == shuffled_fathers)) {
-      shuffled_fathers <- sample(couples)
-    }
-    
-    # Create surrogate dataset
-    surrogate_data <- data
-    
-    # Initialize SurrogateFatherID column with original CoupleID
-    surrogate_data$SurrogateFatherID <- surrogate_data$CoupleID
-    
-    # For each original couple
-    for(i in seq_along(couples)) {
-      orig_id <- couples[i]
-      surr_id <- shuffled_fathers[i]
-      
-      # Get indices for the current couple
-      orig_indices <- which(data$CoupleID == orig_id)
-      surr_indices <- which(data$CoupleID == surr_id)
-      
-      # Replace father variables with surrogate father data
-      surrogate_data$FatherValence_s[orig_indices] <- data$FatherValence_s[surr_indices]
-      surrogate_data$FatherArousal_s[orig_indices] <- data$FatherArousal_s[surr_indices]
-      surrogate_data$FatherValenceVel[orig_indices] <- data$FatherValenceVel[surr_indices]
-      surrogate_data$FatherValenceAcc[orig_indices] <- data$FatherValenceAcc[surr_indices]
-      
-      # Assign the surrogate father ID to the current couple's rows
-      surrogate_data$SurrogateFatherID[orig_indices] <- surr_id
-    }
-    
-    # Add identifiers
-    surrogate_data$SurrogateID <- paste0("S", seed_val)
-    surrogate_data$isSurrogate <- TRUE
-    
-    return(surrogate_data)
-  }
-  
-  # Create all surrogate datasets using different seeds
-  surrogate_list <- map(1:n_surrogates, create_one_surrogate)
-  
-  # Add original data with appropriate identifiers
-  original_data <- data %>%
-    mutate(
-      SurrogateID = "Original",
-      isSurrogate = FALSE,
-      SurrogateFatherID = CoupleID
-    )
-  
-  # Combine all datasets
-  all_data <- bind_rows(surrogate_list) %>%
-    bind_rows(original_data)
-  
-  return(all_data)
-}
-
-surrogates_both_periods_S2 <- create_multiple_surrogates(d_multivariate_both_periods, n_surrogates = 1) %>%
-  filter(isSurrogate == TRUE)
-
-CoupledOscillatorModel_surrogate <- brm(
-            f_coupled_dynamics_acc,
-            data = surrogates_both_periods_S2,
-            family = gaussian(),
-            prior = p_coupled_dynamics, 
-            sample_prior = "yes",
-            chains = 2,
-            cores = 64,
-            warmup = 500,
-            iter = 2000,
-            control = list(adapt_delta = 0.90, max_treedepth = 10),
-            backend = 'cmdstan')
-```
-
-## Extract Estimates for Supplementary Materials
-
-```{r}
-#CoupledOscillatorModel_surrogate <- readRDS(here("FinalModels", "CoupledOscillatorModel_surrogate.rds"))
-tests_surrogate <- extract_all_tests_distant_parents(CoupledOscillatorModel_surrogate)
-write.csv(tests_surrogate, here("StatsForBodyText", "coupledoscillator_tests_surrogate.csv"), row.names = FALSE)
-
-surrogate_val_cor <- extract_residual_valence_correlation(
-  model = CoupledOscillatorModel_surrogate, 
-  TestDescription = "surrogate_val_cor"
-)
-
-far_prox_val_cor <- extract_residual_valence_correlation(
-  model = CoupledOscillatorModel_farproximity, 
-  TestDescription = "far_prox_val_cor"
-)
-
-surrogate_aro_cor <- extract_residual_arousal_correlation(
-  model = CoupledOscillatorModel_surrogate, 
-  TestDescription = "surrogate_aro_cor"
-)
-
-far_prox_aro_cor <- extract_residual_arousal_correlation(
-  model = CoupledOscillatorModel_farproximity, 
-  TestDescription = "far_prox_aro_cor"
-)
-
-phasespace_tests_control <- rbind(surrogate_val_cor, far_prox_val_cor, surrogate_aro_cor, far_prox_aro_cor)
-
-write.csv(phasespace_tests_control, here("StatsForBodyText", "control_correlation_test.csv"))
-```
-
-# Get Close-Proximity Correlations for Each Leave Period
-
-```{r, eval = FALSE}
-f_coupled_dynamics_acc <- mvbf(
-    FatherValence_s ~ 0 + (1 | CoupleID),
-    MotherValence_s ~ 0 + (1 | CoupleID),
-    
-    FatherArousal_s ~ 0 + (1 | CoupleID),
-    MotherArousal_s ~ 0 + (1 | CoupleID),
-    
-    FatherValenceVel ~ 0 + (1 | CoupleID),
-    MotherValenceVel ~ 0 + (1 | CoupleID),
-    
-    FatherValenceAcc ~ 0 +
-                       FatherValence_s + FatherValenceVel +
-                       MotherValence_s:isProximate + MotherValenceVel:isProximate +
-                       FatherValence_s:FatherArousal_s + FatherValenceVel:FatherArousal_s +
-                       MotherValence_s:isProximate:MotherArousal_s + MotherValenceVel:isProximate:MotherArousal_s +
-                      (FatherValence_s + FatherValenceVel + MotherValence_s:isProximate + MotherValenceVel:isProximate + FatherValence_s:FatherArousal_s + FatherValenceVel:FatherArousal_s + MotherValence_s:isProximate:MotherArousal_s + MotherValenceVel:isProximate:MotherArousal_s | CoupleID / StudyDay),
-    
-    MotherValenceAcc ~ 0 +
-                       MotherValence_s + MotherValenceVel +
-                       FatherValence_s:isProximate + FatherValenceVel:isProximate +
-                       MotherValence_s:MotherArousal_s + MotherValenceVel:MotherArousal_s +
-                       FatherValence_s:isProximate:FatherArousal_s + FatherValenceVel:isProximate:FatherArousal_s +
-                      (MotherValence_s + MotherValenceVel + FatherValence_s:isProximate + FatherValenceVel:isProximate + MotherValence_s:MotherArousal_s + MotherValenceVel:MotherArousal_s + FatherValence_s:isProximate:FatherArousal_s + FatherValenceVel:isProximate:FatherArousal_s | CoupleID / StudyDay))
-
-CoupledOscillatorModel_close_proximity_T1 <- brm(
-            f_coupled_dynamics_acc,
-            data = d_multivariate %>% filter(isProximate == 1) %>% filter(Leave == "Maternity Leave"),
-            family = gaussian(),
-            prior = p_coupled_dynamics, 
-            sample_prior = "yes",
-            chains = 2,
-            cores = 64,
-            warmup = 500,
-            iter = 2000,
-            control = list(adapt_delta = 0.90, max_treedepth = 10),
-            backend = 'cmdstan')
-
-CoupledOscillatorModel_close_proximity_T2 <- brm(
-            f_coupled_dynamics_acc,
-            data = d_multivariate %>% filter(isProximate == 1) %>% filter(Leave == "Paternity Leave"),
-            family = gaussian(),
-            prior = p_coupled_dynamics, 
-            sample_prior = "yes",
-            chains = 2,
-            cores = 64,
-            warmup = 1000,
-            iter = 2500,
-            control = list(adapt_delta = 0.999999, max_treedepth = 20),
-            backend = 'cmdstan')
-```
-
-## Extract Estimates for Supplementary Materials
-```{r}
-CoupledOscillatorModel_close_proximity_T1 <- readRDS(here("FinalModels", "CoupledOscillatorModel_close_proximity_T1.rds"))
-CoupledOscillatorModel_close_proximity_T2 <- readRDS(here("FinalModels", "CoupledOscillatorModel_close_proximity_T2.rds"))
-
-T1_val_cor <- extract_residual_valence_correlation(
-  model = CoupledOscillatorModel_close_proximity_T1, 
-  TestDescription = "T1_val_cor"
-)
-
-T2_val_cor <- extract_residual_valence_correlation(
-  model = CoupledOscillatorModel_close_proximity_T2, 
-  TestDescription = "T2_val_cor"
-)
-
-
-T1_aro_cor <- extract_residual_arousal_correlation(
-  model = CoupledOscillatorModel_close_proximity_T1, 
-  TestDescription = "T1_aro_cor"
-)
-
-T2_aro_cor <- extract_residual_arousal_correlation(
-  model = CoupledOscillatorModel_close_proximity_T2, 
-  TestDescription = "T2_aro_cor"
-)
-
-phasespace_tests <- rbind(T1_val_cor, T2_val_cor,
-                          T1_aro_cor, T2_aro_cor)
-
-
-write.csv(phasespace_tests, here("StatsForBodyText", "correlation_tests.csv"))
-```

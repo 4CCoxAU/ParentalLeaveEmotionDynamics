@@ -1,7 +1,7 @@
 ---
 title: "preprocessing"
-author: ""
-date: "2025-03-06"
+author: "Chris Cox"
+date: "2025-11-28"
 output: pdf_document
 editor_options: 
   chunk_output_type: console
@@ -12,7 +12,6 @@ editor_options:
 ```{r, setup, include = FALSE}
 knitr::opts_chunk$set(tidy = TRUE, tidy.opts = list(width.cutoff = 60))
 ```
-
 
 ```{r}
 source(here("functions.R"))
@@ -86,6 +85,15 @@ d_multivariate <- bind_rows(
   ) %>%
   ungroup()
 
+overlappingleaveT2 <- read.csv(here("analysis_scripts", "dads_NOTon_leave_T2_CC.csv"))
+overlappingleaveT2mothers <- read.csv(here("analysis_scripts", "moms_on_leave_T2_CC.csv"))
+
+fathers_on_leave <- filter(overlappingleaveT2, is.na(Decision))
+moms_on_leave <- filter(overlappingleaveT2mothers, Decision == "On Leave")
+
+couples_w_overlapping_leave_periods <- unique(c(moms_on_leave$CoupleID, fathers_on_leave$CoupleID))
+d_multivariate <- filter(d_multivariate, !CoupleID %in% couples_w_overlapping_leave_periods)
+
 d_multivariate_close_proximity <- d_multivariate %>%
   mutate(DistanceCategory = ifelse(DistanceDiff < 50, "Close", "Far")) %>%
   filter(DistanceCategory == "Close")
@@ -99,124 +107,31 @@ d_multivariate_close_proximity_T1 <- d_multivariate_close_proximity %>%
 
 d_multivariate_close_proximity_T2 <- d_multivariate_close_proximity %>%
   filter(Leave == "Paternity Leave")
-```
 
-## Extract data for paper
-
-```{r}
-# CoupleIDs according to different exclusion criteria, T1:
-insufficient_response_coupleIDs_T1 <- extract_excluded_couples(T1_exclusion_reasons, "CoupleIDs excluded due to insufficient daily responses")
-invalid_coupleIDs_T1 <- extract_excluded_couples(T1_exclusion_reasons, "Invalid CoupleIDs")
-tech_error_T1 <- extract_tech_error(T1_exclusion_reasons, "Technical Error")
-
-only_insufficient_T1 <- setdiff(insufficient_response_coupleIDs_T1, invalid_coupleIDs_T1)
-only_invalid_T1 <- setdiff(invalid_coupleIDs_T1, insufficient_response_coupleIDs_T1)
-overlapping_ids_T1 <- intersect(insufficient_response_coupleIDs_T1, invalid_coupleIDs_T1)
-
-# CoupleIDs according to different exclusion criteria, T2:
-insufficient_response_coupleIDs_T2 <- extract_excluded_couples(T2_exclusion_reasons, "CoupleIDs excluded due to insufficient daily responses")
-invalid_coupleIDs_T2 <- extract_excluded_couples(T2_exclusion_reasons, "Invalid CoupleIDs")
-tech_error_T2 <- extract_tech_error(T2_exclusion_reasons, "Technical Error")
-
-only_insufficient_T2 <- setdiff(insufficient_response_coupleIDs_T2, invalid_coupleIDs_T2)
-only_invalid_T2 <- setdiff(invalid_coupleIDs_T2, insufficient_response_coupleIDs_T2)
-overlapping_ids_T2 <- intersect(insufficient_response_coupleIDs_T2, invalid_coupleIDs_T2)
-
-CouplesTestedT1InT2 <- d_T1_multivariate %>%
-  filter(CoupleID %in% unique(d_T2_multivariate$CoupleID))
-
-CouplesT1InT2 <- d_T1_multivariate %>%
-  filter(CoupleID %in% unique(d_T2_multivariate$CoupleID))
-
-NumberOfFatherResponses_T1 <- d_multivariate %>%
-  filter(!is.na(FatherValence)) %>%
-  filter(Leave == "Maternity Leave") %>%
-  group_by(CoupleID, StudyDay, Leave) %>%
-  summarise(n = n())
-
-NumberOfFatherResponses_T2 <- d_multivariate %>%
-  filter(!is.na(FatherValence)) %>%
-  filter(Leave == "Paternity Leave") %>%
-  group_by(CoupleID, StudyDay, Leave) %>%
-  summarise(n = n())
-
-NumberOfMothersResponses_T1 <- d_multivariate %>%
-  filter(!is.na(MotherValence)) %>%
-  filter(Leave == "Maternity Leave") %>%
-  group_by(CoupleID, StudyDay, Leave) %>%
-  summarise(n = n())
-
-NumberOfMothersResponses_T2 <- d_multivariate %>%
-  filter(!is.na(MotherValence)) %>%
-  filter(Leave == "Paternity Leave") %>%
-  group_by(CoupleID, StudyDay, Leave) %>%
-  summarise(n = n())
-
-NumberOfFullFatherResponses_T1 <- d_multivariate %>%
-  filter(!is.na(FatherValence)) %>%
-  filter(Leave == "Maternity Leave") %>%
+# Change preprocessing to allow acceleration to persist over days:
+d_multivariate_no_dis <- d_multivariate %>%
+  group_by(CoupleID) %>%
+  arrange(CoupleID, time) %>%
+    mutate(
+      across(
+        c(MotherArousal_s, MotherValence_s, 
+          FatherArousal_s, FatherValence_s),
+        list(
+          Prev = ~lag(.),
+          PrevPrev = ~lag(., 2),
+          PrevPrevPrev = ~lag(., 3),
+          PrevPrevPrevPrev = ~lag(., 4),
+          PrevPrevPrevPrevPrev = ~lag(., 5)
+        )
+      )
+    ) %>%
   group_by(CoupleID, Leave) %>%
-  summarise(n = n())
-
-NumberOfFullFatherResponses_T2 <- d_multivariate %>%
-  filter(!is.na(FatherValence)) %>%
-  filter(Leave == "Paternity Leave") %>%
-  group_by(CoupleID, Leave) %>%
-  summarise(n = n())
-
-NumberOfFullMothersResponses_T1 <- d_multivariate %>%
-  filter(!is.na(MotherValence)) %>%
-  filter(Leave == "Maternity Leave") %>%
-  group_by(CoupleID, Leave) %>%
-  summarise(n = n())
-
-NumberOfFullMothersResponses_T2 <- d_multivariate %>%
-  filter(!is.na(MotherValence)) %>%
-  filter(Leave == "Paternity Leave") %>%
-  group_by(CoupleID, Leave) %>%
-  summarise(n = n())
-
-# Extract insufficient daily response couples
-SummaryStatisticsForPaper <- tibble(
-  TotalTestedT1 = length(unique(d_T1_multivariate$CoupleID)),
-  TotalTestedT2 = length(unique(d_T2_multivariate$CoupleID)),
-  TotalTested = TotalTestedT1 + TotalTestedT2,
-  CouplesTestedT1InT2 = length(unique(CouplesT1InT2$CoupleID)),
-  CouplesKeptT1InT2 = length(unique(CouplesT1InT2$CoupleID)),
-  only_insufficient_T1 = length(only_insufficient_T1),
-  only_invalid_T1 = length(c(only_invalid_T1, overlapping_ids_T1)),
-  tech_error_T1 = tech_error_T1,
-  total_excluded_T1 = only_insufficient_T1 + only_invalid_T1 + tech_error_T1,
-  only_insufficient_T2 = length(only_insufficient_T2),
-  only_invalid_T2 = length(c(only_invalid_T2, overlapping_ids_T2)),
-  tech_error_T2 = tech_error_T2,
-  total_excluded_T2 = only_insufficient_T2 + only_invalid_T2 + tech_error_T2,
-  CouplesInT1AfterExclusion = length(unique(d_T1_multivariate$CoupleID)),
-  CouplesInT2AfterExclusion = length(unique(d_T2_multivariate$CoupleID)),
-  AverageResponsesPerDayFathers_T1 = mean(NumberOfFatherResponses_T1$n),
-  AverageResponsesPerDayFathers_T2 = mean(NumberOfFatherResponses_T2$n),
-  AverageResponsesPerDayFathers_T1_SD = sd(NumberOfFatherResponses_T1$n),
-  AverageResponsesPerDayFathers_T2_SD = sd(NumberOfFatherResponses_T2$n),
-  AverageResponsesPerDayMothers_T1 = mean(NumberOfMothersResponses_T1$n),
-  AverageResponsesPerDayMothers_T2 = mean(NumberOfMothersResponses_T2$n),
-  AverageResponsesPerDayMothers_T1_SD = sd(NumberOfMothersResponses_T1$n),
-  AverageResponsesPerDayMothers_T2_SD = sd(NumberOfMothersResponses_T2$n),
-  NumberOfFullFatherResponses_T1_M = mean(NumberOfFullFatherResponses_T1$n),
-  NumberOfFullFatherResponses_T1_SD = sd(NumberOfFullFatherResponses_T1$n),
-  NumberOfFullFatherResponses_T2_M = mean(NumberOfFullFatherResponses_T2$n),
-  NumberOfFullFatherResponses_T2_SD = sd(NumberOfFullFatherResponses_T2$n),
-  NumberOfFullMotherResponses_T1 = mean(NumberOfFullMothersResponses_T1$n),
-  NumberOfFullMotherResponses_T1_SD = sd(NumberOfFullMothersResponses_T1$n),
-  NumberOfFullMotherResponses_T2 = mean(NumberOfFullMothersResponses_T2$n),
-  NumberOfFullMotherResponses_T2_SD = sd(NumberOfFullMothersResponses_T2$n)
+  arrange(CoupleID, Leave, time) %>%
+  mutate(
+    FatherValenceVel = (FatherValence_s - FatherValence_s_Prev),
+    MotherValenceVel = (MotherValence_s - MotherValence_s_Prev),
+    FatherValenceAcc = (FatherValence_s - 2*FatherValence_s_Prev + FatherValence_s_PrevPrev),
+    MotherValenceAcc = (MotherValence_s - 2*MotherValence_s_Prev + MotherValence_s_PrevPrev)
   ) %>%
-  pivot_longer(
-    cols = everything(), 
-    names_to = "Statistic", 
-    values_to = "Value"
-  ) %>%
-  mutate(Value = round(Value, 2)) %>%
-  print(n = 50)
-
-write.csv(SummaryStatisticsForPaper, here("StatsForBodyText", "SummaryStatistics.csv"))
+  ungroup()
 ```

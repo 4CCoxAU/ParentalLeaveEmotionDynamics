@@ -1,8 +1,7 @@
 ---
 title: "PriorPredictiveChecks"
 output: pdf_document
-author: ""
-date: "2025-03-06"
+date: "2025-11-28"
 editor_options: 
   chunk_output_type: console
 ---

@@ -1,7 +1,7 @@
 ---
-title: "simulate"
-author: ""
-date: "2025-03-06"
+title: "simualate"
+author: "Chris Cox"
+date: "2025-11-28"
 output: pdf_document
 editor_options: 
   chunk_output_type: console
@@ -547,3 +547,371 @@ EmotionDynamicsDescription <- plot_grid(emotion_position, emotion_velocity, emot
 
 #ggsave(plot = EmotionDynamicsDescription, filename = here("FinalFigures", "EmotionDynamicsDescription.pdf"), height = 6, width = 12)
 ```
+
+
+# Strong, Medium and Weak Levels for Supplement
+
+## First Pattern: Synchrony with Strong, Medium and Weak Levels
+```{r}
+# Strong Synchrony
+sim_synchrony_strong <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.3,
+  auto_corr_father = 0.3,
+  cross_corr_m_to_f = 0.4,  
+  cross_corr_f_to_m = 0.4,
+  correlation = 0.95,
+  sd_mother = 0.8,
+  sd_father = 0.8
+) %>%
+  mutate(level = "Strong")
+
+# Medium Synchrony
+sim_synchrony_medium <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.3,
+  auto_corr_father = 0.3,
+  cross_corr_m_to_f = 0.4,  
+  cross_corr_f_to_m = 0.4,
+  correlation = 0.6,
+  sd_mother = 0.8,
+  sd_father = 0.8
+) %>%
+  mutate(level = "Medium")
+
+# Weak Synchrony
+sim_synchrony_weak <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.3,
+  auto_corr_father = 0.3,
+  cross_corr_m_to_f = 0.4,  
+  cross_corr_f_to_m = 0.4,
+  correlation = 0.25,
+  sd_mother = 0.8,
+  sd_father = 0.8
+) %>%
+  mutate(level = "Weak")
+
+# Combine all data for plotting
+synchrony_data <- bind_rows(
+  sim_synchrony_strong,
+  sim_synchrony_medium,
+  sim_synchrony_weak
+) %>%
+  mutate(level = factor(level, levels = c("Strong", "Medium", "Weak"))) %>%
+  pivot_longer(
+    cols = c(mother, father),
+    names_to = "partner",
+    values_to = "emotion"
+  ) %>%
+  mutate(group = paste(level, partner, sep = "_"))
+
+# Plot all synchrony levels
+synchrony_plot <- ggplot(synchrony_data, aes(x = time, y = emotion, color = partner)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("mother" = "#21908CFF", "father" = "#D95F02"),
+                     labels = c("mother" = "Mother", "father" = "Father")) +
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+  ylim(c(-2.5, 2.5)) +
+  facet_wrap(~ level, ncol = 3) +
+  labs(title = "Synchrony",
+       y = "Valence",
+       x = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = "none",
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          strip.text.x = element_text(size = 20, color = "black", face ="bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+
+synchrony_plot
+```
+
+## Second Pattern: Co-Regulation with Strong, Medium and Weak Levels
+```{r}
+# Strong Co-Regulation
+sim_coreg_strong <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.9,
+  cross_corr_f_to_m = 0.9,
+  correlation = 0.1,
+  sd_mother = 0.5,
+  sd_father = 0.5
+) %>%
+  mutate(level = "Strong")
+
+# Medium Co-Regulation
+sim_coreg_medium <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.5,
+  cross_corr_f_to_m = 0.5,
+  correlation = 0.1,
+  sd_mother = 0.5,
+  sd_father = 0.5
+) %>%
+  mutate(level = "Medium")
+
+# Weak Co-Regulation
+sim_coreg_weak <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.2,
+  cross_corr_f_to_m = 0.2,
+  correlation = 0.1,
+  sd_mother = 0.5,
+  sd_father = 0.5
+) %>%
+  mutate(level = "Weak")
+
+# Combine all data for plotting
+coreg_data <- bind_rows(
+  sim_coreg_strong,
+  sim_coreg_medium,
+  sim_coreg_weak
+) %>%
+  mutate(level = factor(level, levels = c("Strong", "Medium", "Weak"))) %>%
+  pivot_longer(
+    cols = c(mother, father),
+    names_to = "partner",
+    values_to = "emotion"
+  ) %>%
+  mutate(group = paste(level, partner, sep = "_"))
+
+# Plot all co-regulation levels
+coreg_plot <- ggplot(coreg_data, aes(x = time, y = emotion, color = partner)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("mother" = "#21908CFF", "father" = "#D95F02"),
+                     labels = c("mother" = "Mother", "father" = "Father")) +
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+  ylim(c(-2.5, 2.5)) +
+  facet_wrap(~ level, ncol = 3) +
+  labs(title = "Co-Regulation",
+       y = "Valence",
+       x = "") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = "none",
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          strip.text.x = element_text(size = 20, color = "black", face ="bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+
+coreg_plot
+```
+
+## Third Pattern: Co-Dysregulation with Strong, Medium and Weak Levels
+```{r}
+# Strong Co-Dysregulation (high amplification)
+sim_codysreg_strong <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.5,    
+  auto_corr_father = 0.5,    
+  cross_corr_m_to_f = 0.9,
+  cross_corr_f_to_m = 0.9,   
+  correlation = 0.5,        
+  sd_mother = 0.6,          
+  sd_father = 0.6           
+) %>%
+  mutate(level = "Strong")
+
+# Medium Co-Dysregulation
+sim_codysreg_medium <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.5,    
+  auto_corr_father = 0.5,    
+  cross_corr_m_to_f = 0.75,
+  cross_corr_f_to_m = 0.75,   
+  correlation = 0.5,        
+  sd_mother = 0.6,          
+  sd_father = 0.6           
+) %>%
+  mutate(level = "Medium")
+
+# Weak Co-Dysregulation
+sim_codysreg_weak <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.5,    
+  auto_corr_father = 0.5,    
+  cross_corr_m_to_f = 0.5,
+  cross_corr_f_to_m = 0.5,   
+  correlation = 0.5,        
+  sd_mother = 0.6,          
+  sd_father = 0.6           
+) %>%
+  mutate(level = "Weak")
+
+# Combine all data for plotting
+codysreg_data <- bind_rows(
+  sim_codysreg_strong,
+  sim_codysreg_medium,
+  sim_codysreg_weak
+) %>%
+  # Reorder the factor levels before pivoting
+  mutate(level = factor(level, levels = c("Strong", "Medium", "Weak"))) %>%
+  pivot_longer(
+    cols = c(mother, father),
+    names_to = "partner",
+    values_to = "emotion"
+  ) %>%
+  mutate(group = paste(level, partner, sep = "_"))
+
+# Plot all co-dysregulation levels
+codysreg_plot <- ggplot(codysreg_data, aes(x = time, y = emotion, color = partner)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("mother" = "#21908CFF", "father" = "#D95F02"),
+                     labels = c("mother" = "Mother", "father" = "Father")) +
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+  facet_wrap(~ level, ncol = 3) +
+  labs(title = "Co-Dysregulation",
+       y = "Valence",
+       x = "Time") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = "none",
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          strip.text.x = element_text(size = 20, color = "black", face ="bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+
+codysreg_plot
+```
+
+## Fourth Pattern: Leader-Follower with Strong, Medium and Weak Levels
+```{r}
+# Strong Leader-Follower (mother strongly influences father)
+sim_leader_strong <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.9,
+  cross_corr_f_to_m = 0.1,
+  correlation = 0.1,
+  sd_mother = 1,
+  sd_father = 1
+) %>%
+  mutate(level = "Strong")
+
+# Medium Leader-Follower
+sim_leader_medium <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.6,
+  cross_corr_f_to_m = 0.1,
+  correlation = 0.1,
+  sd_mother = 1,
+  sd_father = 1
+) %>%
+  mutate(level = "Medium")
+
+# Weak Leader-Follower
+sim_leader_weak <- simulate_dyadic_emotions(
+  n_timepoints = 18,
+  auto_corr_mother = 0.1,
+  auto_corr_father = 0.1,
+  cross_corr_m_to_f = 0.3,
+  cross_corr_f_to_m = 0.1,
+  correlation = 0.1,
+  sd_mother = 1,
+  sd_father = 1
+) %>%
+  mutate(level = "Weak")
+
+# Combine all data for plotting
+leader_data <- bind_rows(
+  sim_leader_strong,
+  sim_leader_medium,
+  sim_leader_weak
+) %>%
+  mutate(level = factor(level, levels = c("Strong", "Medium", "Weak"))) %>%
+  pivot_longer(
+    cols = c(mother, father),
+    names_to = "partner",
+    values_to = "emotion"
+  ) %>%
+  mutate(group = paste(level, partner, sep = "_"))
+
+# Plot all leader-follower levels
+leader_plot <- ggplot(leader_data, aes(x = time, y = emotion, color = partner)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("mother" = "#21908CFF", "father" = "#D95F02"),
+                     labels = c("mother" = "Mother", "father" = "Father")) +
+  geom_hline(yintercept = 0, color = "black", linetype = "dashed") +
+  ylim(c(-3, 3)) +
+  facet_wrap(~ level, ncol = 3) +
+  labs(title = "Leader-Follower",
+       y = "Valence",
+       x = "Time") +
+  theme_minimal() +
+  guides(color = guide_legend(nrow = 1)) +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face ="bold"),
+          axis.text.x = element_blank(),
+          axis.title.x = element_text(size = 20),
+          axis.text.y = element_blank(),
+          axis.title.y = element_text(size = 20),
+          legend.title = element_blank(),
+          legend.text = element_text(size = 20),
+          legend.key.size = unit(3, "lines"),
+          legend.key = element_rect(fill = "transparent", color = NA),
+          legend.background = element_rect(fill = "transparent", color = NA),
+          legend.position = c(0.8, 1.5),
+          strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+          strip.text.x = element_text(size = 20, color = "black", face ="bold"),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
+leader_plot
+```
+
+
+```{r}
+final_plot <- plot_grid(
+  synchrony_plot, coreg_plot, 
+  codysreg_plot, leader_plot, 
+  nrow = 4, 
+  align = 'vh'
+)
+
+#ggsave(plot = final_plot, file = here("FinalFigures", "emotion_dynamics_strongweakpatterns.png"), width = 12, height = 14)
+```
+

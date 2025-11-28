@@ -1,7 +1,7 @@
 ---
-title: "coupledoscillator"
-author: ""
-date: "2025-03-06"
+title: "mixture"
+author: "Chris Cox"
+date: "2025-11-28"
 output: pdf_document
 editor_options: 
   chunk_output_type: console
@@ -10,12 +10,11 @@ editor_options:
 ```{r, include = FALSE}
 # Source functions
 source(here("functions.R"))
-d_multivariate <- read.csv(file = here("d_multivariate.csv"))
 ```
 
 # Coupled Oscillator Model
 
-```{r}
+```{r, eval = FALSE}
 f_coupled_dynamics_acc <- mvbf(
     # Valence position
     FatherValence_s ~ 0 + Leave + (Leave | CoupleID),
@@ -35,17 +34,22 @@ f_coupled_dynamics_acc <- mvbf(
                        Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate +
                        Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s +
                        Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s +
-                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s | CoupleID / StudyDay),
+                      (Leave:FatherValence_s + Leave:FatherValenceVel + Leave:MotherValence_s:isProximate + Leave:MotherValenceVel:isProximate + Leave:FatherValence_s:FatherArousal_s + Leave:FatherValenceVel:FatherArousal_s + Leave:MotherValence_s:isProximate:MotherArousal_s + Leave:MotherValenceVel:isProximate:MotherArousal_s | CoupleID),
     
     MotherValenceAcc ~ 0 + Leave +
                        Leave:MotherValence_s + Leave:MotherValenceVel +
                        Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate +
                        Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s +
                        Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s +
-                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s | CoupleID / StudyDay))
+                      (Leave:MotherValence_s + Leave:MotherValenceVel + Leave:FatherValence_s:isProximate + Leave:FatherValenceVel:isProximate + Leave:MotherValence_s:MotherArousal_s + Leave:MotherValenceVel:MotherArousal_s + Leave:FatherValence_s:isProximate:FatherArousal_s + Leave:FatherValenceVel:isProximate:FatherArousal_s | CoupleID))
 
 p_coupled_dynamics <- c(
-  prior(normal(0, 2), class = "b"),
+  prior(normal(0, 2), class = "b", resp = "FatherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "FatherValences"),
+  prior(normal(0, 2), class = "b", resp = "FatherValenceVel"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceAcc"),
+  prior(normal(0, 2), class = "b", resp = "MotherValences"),
+  prior(normal(0, 2), class = "b", resp = "MotherValenceVel"),
   prior(normal(1, 2), class = "sd", resp = "FatherValenceAcc"),
   prior(normal(1, 2), class = "sd", resp = "FatherValences"),
   prior(normal(1, 2), class = "sd", resp = "FatherValenceVel"),
@@ -67,203 +71,451 @@ CoupledOscillatorModel <- brm(
             family = gaussian(),
             prior = p_coupled_dynamics, 
             sample_prior = "yes",
-            chains = 2,
+            chains = 4,
             cores = 64,
             warmup = 500,
-            iter = 2000,
+            iter = 5000,
             control = list(adapt_delta = 0.90, max_treedepth = 10),
             backend = 'cmdstan')
 ```
 
-# Visualise Change in Valence
+# Extract Data for the Paper
 
 ```{r}
 #CoupledOscillatorModel <- readRDS(here("FinalModels", "CoupledOscillatorModel.rds"))
+all_tests <- extract_all_tests(CoupledOscillatorModel)
+#write.csv(all_tests, here("StatsForBodyText", "coupledoscillator_tests.csv"), row.names = FALSE)
+```
 
-newdata <- expand.grid(
-  Leave = c("Maternity Leave", "Paternity Leave"),
-  CoupleID = unique(d_multivariate$CoupleID)
+# Figure 4A: Residual Valence Synchrony Plot
+```{r}
+# Extract correlations for when partners are proximate:
+correlation_by_leave <- calculate_residual_correlations(
+  model = CoupledOscillatorModel,
+  mother_resp = "MotherValences",
+  father_resp = "FatherValences",
+  mother_var = "MotherValence_s",
+  father_var = "FatherValence_s"
+)
+
+correlation_by_leave_arousal <- calculate_residual_correlations(
+  model = CoupledOscillatorModel,
+  mother_resp = "MotherArousals",
+  father_resp = "FatherArousals",
+  mother_var = "MotherArousal_s",
+  father_var = "FatherArousal_s"
+)
+
+valence_cor <- correlation_by_leave %>%
+  rename("Estimate" = median_r,
+         "CI.Lower" = lower_95,
+         "CI.Upper" = upper_95,
+         "Evid.Ratio" = evidence_ratio_positive) %>%
+  select(-prob_positive, -prob_negative) %>%
+  mutate(Estimate = round(Estimate, 2),
+         CI.Lower = round(CI.Lower, 2),
+         CI.Upper = round(CI.Upper, 2),
+         Evid.Ratio = round(Evid.Ratio, 2)) %>%
+  mutate(TestDescription = c("T1_val_cor", "T2_val_cor"))
+
+arousal_cor <- correlation_by_leave_arousal %>%
+  rename("Estimate" = median_r,
+         "CI.Lower" = lower_95,
+         "CI.Upper" = upper_95,
+         "Evid.Ratio" = evidence_ratio_positive) %>%
+  select(-prob_positive, -prob_negative) %>%
+  mutate(Estimate = round(Estimate, 2),
+         CI.Lower = round(CI.Lower, 2),
+         CI.Upper = round(CI.Upper, 2),
+         Evid.Ratio = round(Evid.Ratio, 2)) %>%
+  mutate(TestDescription = c("T1_aro_cor", "T2_aro_cor"))
+
+cor_proximate <- rbind(valence_cor, arousal_cor)
+#write.csv(cor_proximate, here("StatsForBodyText", "correlation_tests.csv"))
+
+# Get FITTED values (predictions) for each response
+fitted_father_val <- fitted(CoupledOscillatorModel, resp = "FatherValences", summary = TRUE)[, "Estimate"]
+fitted_mother_val <- fitted(CoupledOscillatorModel, resp = "MotherValences", summary = TRUE)[, "Estimate"]
+
+# Get OBSERVED values
+observed_father_val <- CoupledOscillatorModel$data$FatherValence_s
+observed_mother_val <- CoupledOscillatorModel$data$MotherValence_s
+
+# Calculate RESIDUALS (observed - fitted)
+father_resid <- observed_father_val - fitted_father_val
+mother_resid <- observed_mother_val - fitted_mother_val
+
+d_multivariate_Time <- d_multivariate %>%
+  filter(!is.na(FatherArousal_s)) %>%
+  filter(!is.na(FatherValence_s)) %>%
+  filter(!is.na(MotherArousal_s)) %>%
+  filter(!is.na(MotherValence_s)) %>%
+  filter(!is.na(FatherValenceVel)) %>%
+  filter(!is.na(MotherValenceVel)) %>%
+  filter(!is.na(FatherValenceAcc)) %>%  
+  filter(!is.na(MotherValenceAcc)) %>%
+  filter(!is.na(isProximate))
+  
+# Create dataframe
+resid_df <- data.frame(
+  FatherValence_resid = father_resid,
+  MotherValence_resid = mother_resid,
+  CoupleID = CoupledOscillatorModel$data$CoupleID,
+  Leave = CoupledOscillatorModel$data$Leave,
+  Time = d_multivariate_Time$time
 ) %>%
-  filter(CoupleID %in% unique(CoupledOscillatorModel$data$CoupleID))
+  mutate(
+    Time = ifelse(Leave == "Paternity Leave", Time + 42, Time)
+  )
 
-FatherValenceNewdata <- add_predicted_draws(CoupledOscillatorModel, newdata = newdata, allow_new_levels = TRUE, resp = "FatherValences", ndraws = 50) %>%
-  group_by(CoupleID, Leave) %>%
-  dplyr::summarise(Estimate = mean(.prediction)) %>%
-  mutate(Role = "Father")
+# Create subtitle with credible interval
+subtitle_text_mat <- sprintf("r = %.2f [%.2f, %.2f]", 
+                        correlation_by_leave$median_r[1],
+                        correlation_by_leave$lower_95[1],
+                        correlation_by_leave$upper_95[1])
 
-MotherValenceNewdata <- add_predicted_draws(CoupledOscillatorModel, newdata = newdata, allow_new_levels = TRUE, resp = "MotherValences", ndraws = 50) %>%
-  group_by(CoupleID, Leave) %>%
-  dplyr::summarise(Estimate = mean(.prediction)) %>%
-  mutate(Role = "Mother")
+subtitle_text_pat <- sprintf("r = %.2f [%.2f, %.2f]", 
+                        correlation_by_leave$median_r[2],
+                        correlation_by_leave$lower_95[2],
+                        correlation_by_leave$upper_95[2])
 
-ValencePlotData <- rbind(FatherValenceNewdata, MotherValenceNewdata)
+# Create a data frame with annotation text for each leave period
+annotation_text <- data.frame(
+  Leave = c("Maternity Leave", "Paternity Leave"),
+  label = c(
+    sprintf("r = %.2f [%.2f, %.2f]", 
+            correlation_by_leave$median_r[correlation_by_leave$Leave == "Maternity Leave"],
+            correlation_by_leave$lower_95[correlation_by_leave$Leave == "Maternity Leave"],
+            correlation_by_leave$upper_95[correlation_by_leave$Leave == "Maternity Leave"]),
+    sprintf("r = %.2f [%.2f, %.2f]", 
+            correlation_by_leave$median_r[correlation_by_leave$Leave == "Paternity Leave"],
+            correlation_by_leave$lower_95[correlation_by_leave$Leave == "Paternity Leave"],
+            correlation_by_leave$upper_95[correlation_by_leave$Leave == "Paternity Leave"])
+  ),
+  # Position for text - adjust x and y as needed
+  x = c(21, 63),
+  y = c(3.05, 3.05) 
+)
 
-FatherValencePlot <- ggplot(FatherValenceNewdata, aes(x = Leave, y = Estimate, fill = Role)) +
-  geom_rain(alpha = 0.8, 
-            rain.side = "f1x1", id.long.var = "CoupleID",
-            point.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42)),
-            line.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42))) +
-  geom_point(data = FatherValenceNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 5, color = "black") +
-  geom_point(data = FatherValenceNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 4, color = "#1B9E77") +
-  geom_line(data = FatherValenceNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-            linewidth = 1, color = "#1B9E77", group = 1) +
-  scale_y_continuous(limits = c(-0.6, 0.4), breaks = c(seq(-0.5, 0.3, 0.1))) +
-  scale_fill_manual(values = "#1B9E77") +
-  labs(x = "", y = "Valence Estimates (z-score)", title = "Father") +
+# Create annotation for EACH couple (one for maternity side, one for paternity side)
+annotation_text <- expand.grid(
+  Couple = c("Couple A"),
+  Leave = c("Maternity Leave", "Paternity Leave"),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    label = ifelse(Leave == "Maternity Leave",
+                   sprintf("r = %.2f [%.2f, %.2f]", 
+                           correlation_by_leave$median_r[correlation_by_leave$Leave == "Maternity Leave"],
+                           correlation_by_leave$lower_95[correlation_by_leave$Leave == "Maternity Leave"],
+                           correlation_by_leave$upper_95[correlation_by_leave$Leave == "Maternity Leave"]),
+                   sprintf("r = %.2f [%.2f, %.2f]", 
+                           correlation_by_leave$median_r[correlation_by_leave$Leave == "Paternity Leave"],
+                           correlation_by_leave$lower_95[correlation_by_leave$Leave == "Paternity Leave"],
+                           correlation_by_leave$upper_95[correlation_by_leave$Leave == "Paternity Leave"])),
+    x = ifelse(Leave == "Maternity Leave", 21, 63),
+    y = 3.0  # Adjust vertical position as needed
+  )
+
+# Create annotation data for only Couple A
+annotation_df <- data.frame(
+  x = c(21, 63),
+  y = c(3, 3),
+  label = c("Maternity Leave", "Paternity Leave"),
+  Couple = c("Couple A", "Couple A")
+)
+
+# Prepare data with continuous time and transition points
+couples_continuous <- bind_rows(
+  resid_df %>% filter(CoupleID == "47"),
+  resid_df %>% filter(CoupleID == "2"),
+  resid_df %>% filter(CoupleID == "30")
+) %>%
+  group_by(CoupleID) %>%
+  arrange(CoupleID, Leave) %>%
+  mutate(
+    time = row_number(),
+    Couple = case_when(
+      CoupleID == "47" ~ "Couple A",
+      CoupleID == "2" ~ "Couple B",
+      CoupleID == "30" ~ "Couple C"
+    )
+  ) %>%
+  ungroup()
+
+# Find where paternity leave starts for each couple
+transition_points <- couples_continuous %>%
+  group_by(Couple) %>%
+  arrange(time) %>%
+  mutate(leave_change = Leave != lag(Leave, default = first(Leave))) %>%
+  filter(leave_change == TRUE, Leave == "Paternity Leave") %>%
+  summarise(transition_time = first(time))
+
+# Pivot for plotting
+plot_data <- couples_continuous %>%
+  pivot_longer(cols = c(FatherValence_resid, MotherValence_resid),
+               names_to = "Parent",
+               values_to = "Residual") %>%
+  mutate(Parent = ifelse(Parent == "FatherValence_resid", "Father", "Mother"))
+
+# Plot
+ResidualCorPlot <- ggplot(plot_data, aes(x = Time, y = Residual, color = Parent)) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.3) +
+  geom_vline(aes(xintercept = 42), 
+             linetype = "dashed", color = "black", linewidth = 0.8, alpha = 0.8) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_y_continuous(breaks = c(-2, 0, 2), limits = c(-3.2, 3)) +
+  scale_x_continuous(limits = c(0, 84), breaks = c(seq(0, 84, 10))) +
+  facet_wrap(~Couple, ncol = 1, scales = "fixed") +
+  scale_color_manual(values = c("Father" = "#fca636", "Mother" = "#446455")) +
+  labs(
+    y = "Valence Residual (z-score)",
+    x = "Experience Sampling Prompt Number",
+    color = NULL
+  ) +
   theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5, size=20), 
-        axis.text.x = element_text(size = 20, color = "black"),
-        axis.title.x = element_text(size = 20, color = "black"),
-        axis.text.y = element_text(size = 20, color = "black"),
-        axis.title.y = element_text(size = 20, color = "black"),
-        legend.title = element_blank(),
-        legend.position = c("none"),
-        legend.key.size = unit(3, "lines"),
-        legend.text = element_text(size = 20),
-        legend.background = element_rect(fill = "transparent", color = NA),
-        legend.key = element_rect(fill = "transparent", color = NA),
-        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
-        strip.text.x = element_text(size = 25, color = "black"),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_blank()
-        )
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold", color = "black"), 
+    plot.subtitle = element_text(size = 15, hjust = 0.5, color = "black"),
+    axis.text.x = element_text(size = 15, color = "black"),
+    axis.text.y = element_text(size = 15, color = "black"),
+    axis.title.x = element_text(size = 15, color = "black"),
+    axis.title.y = element_text(size = 15, color = "black"),
+    legend.title = element_blank(),
+    legend.position = c(0.8, 0.65),
+    legend.key.size = unit(1, "lines"),
+    legend.text = element_text(size = 15),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.key = element_rect(fill = "transparent", color = NA),
+    strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+    strip.text.x = element_text(size = 15, color = "black"),
+    strip.text.y = element_text(size = 15, color = "black"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.border = element_blank(),
+    strip.placement = "outside",
+    panel.spacing = unit(0.2, "cm"),
+    plot.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"))
 
-MotherValencePlot <- ggplot(MotherValenceNewdata, aes(x = Leave, y = Estimate, fill = Role)) +
-  geom_rain(alpha = 0.8, 
-            rain.side = "f1x1", id.long.var = "CoupleID",
-            point.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42)),
-            line.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42))) +
-  geom_point(data = MotherValenceNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 5, color = "black") +
-  geom_point(data = MotherValenceNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 4, color = "#D95F02") +
-  geom_line(data = MotherValenceNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-            linewidth = 1, color = "#D95F02", group = 1) +
-  scale_y_continuous(limits = c(-0.6, 0.4), breaks = c(seq(-0.5, 0.3, 0.1))) +
-  scale_fill_manual(values = "#D95F02") +
-  labs(x = "", y = "Valence Estimates", title = "Mother") +
-  theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5, size=20), 
-        axis.text.x = element_text(size = 20, color = "black"),
-        axis.title.x = element_text(size = 20, color = "black"),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        legend.title = element_blank(),
-        legend.position = "none",
-        legend.key.size = unit(3, "lines"),
-        legend.text = element_text(size = 20),
-        legend.background = element_rect(fill = "transparent", color = NA),
-        legend.key = element_rect(fill = "transparent", color = NA),
-        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
-        strip.text.x = element_text(size = 25, color = "black"),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_blank()
-        )
+ResidualCorPlot
 
-PredictedValenceT1_T2 <- cowplot::plot_grid(FatherValencePlot, MotherValencePlot)
-PredictedValenceT1_T2
+title <- ggdraw() + 
+  draw_label("A) Residual Valence Synchrony",
+             fontface = "bold", size = 20)
 
-ggsave(plot = PredictedValenceT1_T2, file = here("FinalFigures", "PredictedValenceT1_T2.pdf"), height = 8, width = 12)
+# Row 1: Maternity Leave / Paternity Leave labels
+title1 <- ggdraw() + 
+  draw_label(annotation_df$label[1], 
+             fontface = "bold", size = 15, x = 0.25, hjust = 0.5) +
+  draw_label(annotation_df$label[2], 
+             fontface = "bold", size = 15, x = 0.75, hjust = 0.5)
+
+# Row 2: Correlation values
+title2 <- ggdraw() + 
+  draw_label(annotation_text[1,]$label, size = 13, x = 0.25, hjust = 0.5) +
+  draw_label(annotation_text[2,]$label, 
+             size = 13, x = 0.75, hjust = 0.5)
+
+fig4A_w_title <- plot_grid(title, title1, title2, ResidualCorPlot, 
+                        ncol = 1, 
+                        rel_heights = c(0.05, 0.05, 0.05, 1))
+
+fig4A_w_title
 ```
 
-# Visualise Change in Arousal
+# Figure 4B: Population-Level Arousal Dependence Plot
 
 ```{r}
-FatherArousalNewdata <- add_predicted_draws(CoupledOscillatorModel, newdata = newdata, allow_new_levels = TRUE, resp = "FatherArousals", ndraws = 50) %>%
-  group_by(CoupleID, Leave) %>%
-  dplyr::summarise(Estimate = mean(.prediction)) %>%
-  mutate(Role = "Father")
+pop_posteriors <- as.data.frame(CoupledOscillatorModel)
 
-MotherArousalNewdata <- add_predicted_draws(CoupledOscillatorModel, newdata = newdata, allow_new_levels = TRUE, resp = "MotherArousals", ndraws = 50) %>%
-  group_by(CoupleID, Leave) %>%
-  dplyr::summarise(Estimate = mean(.prediction)) %>%
-  mutate(Role = "Mother")
+# ===== MATERNITY LEAVE =====
 
-ArousalPlotData <- rbind(FatherArousalNewdata, MotherArousalNewdata)
+# Father → Mother (Maternity Leave)
+f_to_m_base <- pop_posteriors %>%
+  select(matches("^b_MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate$")) %>%
+  rename(value = 1) %>%
+  mutate(effect = "Base Coupling", direction = "Father → Mother")
 
-FatherArousalPlot <- ggplot(FatherArousalNewdata, aes(x = Leave, y = Estimate, fill = Role)) +
-  geom_rain(alpha = 0.8, 
-            rain.side = "f1x1", id.long.var = "CoupleID",
-            point.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42)),
-            line.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42))) +
-  geom_point(data = FatherArousalNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 5, color = "black") +
-  geom_point(data = FatherArousalNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 4, color = "#1B9E77") +
-  geom_line(data = FatherArousalNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-            linewidth = 1, color = "#1B9E77", group = 1) +
-  scale_y_continuous(limits = c(-0.6, 0.4), breaks = c(seq(-0.5, 0.3, 0.1))) +
-  scale_fill_manual(values = "#1B9E77") +
-  labs(x = "", y = "Arousal Estimates (z-score)", title = "Father") +
+f_to_m_arousal <- pop_posteriors %>%
+  select(matches("^b_MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate:FatherArousal_s$")) %>%
+  rename(value = 1) %>%
+  mutate(effect = "Arousal Modulation", direction = "Father → Mother")
+
+# Mother → Father (Maternity Leave)
+m_to_f_base <- pop_posteriors %>%
+  select(matches("^b_FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate$")) %>%
+  rename(value = 1) %>%
+  mutate(effect = "Base Coupling", direction = "Mother → Father")
+
+m_to_f_arousal <- pop_posteriors %>%
+  select(matches("^b_FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate:MotherArousal_s$")) %>%
+  rename(value = 1) %>%
+  mutate(effect = "Arousal Modulation", direction = "Mother → Father")
+
+# Combine all data
+pop_data <- bind_rows(f_to_m_base, f_to_m_arousal, m_to_f_base, m_to_f_arousal)
+
+# Calculate coupling at different arousal levels
+pop_data_revised <- bind_rows(
+  # Father → Mother at different arousal levels
+  pop_posteriors %>%
+    select(base = matches("^b_MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate$"),
+           arousal_mod = matches("^b_MotherValenceAcc_LeaveMaternityLeave:FatherValence_s:isProximate:FatherArousal_s$")) %>%
+    mutate(
+      high_arousal = base + arousal_mod,
+      mean_arousal = base,
+      low_arousal = base - arousal_mod
+    ) %>%
+    select(-base, -arousal_mod) %>%
+    pivot_longer(everything(), names_to = "arousal_level", values_to = "value") %>%
+    mutate(direction = "Father → Mother"),
+  
+  # Mother → Father at different arousal levels
+  pop_posteriors %>%
+    select(base = matches("^b_FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate$"),
+           arousal_mod = matches("^b_FatherValenceAcc_LeaveMaternityLeave:MotherValence_s:isProximate:MotherArousal_s$")) %>%
+    mutate(
+      high_arousal = base + arousal_mod,
+      mean_arousal = base,
+      low_arousal = base - arousal_mod
+    ) %>%
+    select(-base, -arousal_mod) %>%
+    pivot_longer(everything(), names_to = "arousal_level", values_to = "value") %>%
+    mutate(direction = "Mother → Father")
+)
+
+# Clean up labels
+pop_data_revised <- pop_data_revised %>%
+  mutate(arousal_level = factor(arousal_level,
+                                levels = c("low_arousal", "mean_arousal", "high_arousal"),
+                                labels = c("Low Arousal (-1 SD)", "Mean Arousal", "High Arousal (+1 SD)"))) %>%
+  mutate(direction = factor(direction, levels = c("Mother → Father", "Father → Mother")))
+
+# Calculate medians
+pop_summary_revised <- pop_data_revised %>%
+  group_by(direction, arousal_level) %>%
+  summarise(median = median(value), .groups = "drop")
+
+# ===== PATERNITY LEAVE =====
+
+# Extract population posteriors for Paternity Leave
+pop_posteriors <- as.data.frame(CoupledOscillatorModel)
+
+# Calculate coupling at different arousal levels - PATERNITY LEAVE
+pop_data_revised_pat <- bind_rows(
+  # Father → Mother at different arousal levels
+  pop_posteriors %>%
+    select(base = matches("^b_MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate$"),
+           arousal_mod = matches("^b_MotherValenceAcc_LeavePaternityLeave:FatherValence_s:isProximate:FatherArousal_s$")) %>%
+    mutate(
+      high_arousal = base + arousal_mod,
+      mean_arousal = base,
+      low_arousal = base - arousal_mod
+    ) %>%
+    select(-base, -arousal_mod) %>%
+    pivot_longer(everything(), names_to = "arousal_level", values_to = "value") %>%
+    mutate(direction = "Father → Mother"),
+  
+  # Mother → Father at different arousal levels
+  pop_posteriors %>%
+    select(base = matches("^b_FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate$"),
+           arousal_mod = matches("^b_FatherValenceAcc_LeavePaternityLeave:MotherValence_s:isProximate:MotherArousal_s$")) %>%
+    mutate(
+      high_arousal = base + arousal_mod,
+      mean_arousal = base,
+      low_arousal = base - arousal_mod
+    ) %>%
+    select(-base, -arousal_mod) %>%
+    pivot_longer(everything(), names_to = "arousal_level", values_to = "value") %>%
+    mutate(direction = "Mother → Father")
+)
+
+# Clean up labels
+pop_data_revised_pat <- pop_data_revised_pat %>%
+  mutate(
+    arousal_level = factor(arousal_level,
+                          levels = c("low_arousal", "mean_arousal", "high_arousal"),
+                          labels = c("Low Arousal (-1 SD)", "Mean Arousal", "High Arousal (+1 SD)")),
+    direction = factor(direction, levels = c("Mother → Father", "Father → Mother")),
+    leave_type = "Paternity Leave"
+  )
+
+# Calculate medians for paternity
+pop_summary_revised_pat <- pop_data_revised_pat %>%
+  group_by(direction, arousal_level) %>%
+  summarise(median = median(value), .groups = "drop")
+
+# Add leave_type column to both datasets
+combined_data <- bind_rows(
+  pop_data_revised %>% mutate(leave_type = "Maternity Leave"),
+  pop_data_revised_pat %>% mutate(leave_type = "Paternity Leave")
+)
+
+# Make plot
+fig4B <- ggplot(combined_data, aes(x = value, y = arousal_level, color = direction, fill = direction)) +
+  stat_dots(aes(color = direction, fill = direction), scale = 0.8, quantiles = 150, dotsize = 1, alpha = 1, side = "top", show.legend = c(fill = T, color = F, size = FALSE, alpha = FALSE)) +
+  stat_pointinterval(aes(x = value, y = as.numeric(arousal_level) - 0.07, point_fill = direction, color = direction), .width = c(0.5, 0.89), point_interval = "median_qi", position = position_dodge(width = 0.1), show.legend = FALSE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.5) +
+  facet_wrap(~leave_type, ncol = 2, scale = "fixed") +
+  scale_fill_manual(values = c("Mother → Father" = "#fca636", "Father → Mother" = "#446455"),
+                    labels = c("Mother → Father" = "Father", "Father → Mother" = "Mother")) +
+  scale_color_manual(values = c("Mother → Father" = "#fca636", "Father → Mother" = "#446455"),
+                     labels = c("Mother → Father" = "Father", "Father → Mother" = "Mother")) +
+  labs(x = "Coupling Strength (Standardized)", y = NULL) +
+  scale_y_discrete(expand = expansion(add = c(0.2, 0.9))) +
+  guides(
+  fill = guide_legend(
+    title = NULL,
+    override.aes = list(
+      size = 2, 
+      linewidth = 5, 
+      alpha = 1,
+      color = c("#fca636", "#446455")
+    )
+  )) +
   theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5, size=20), 
-        axis.text.x = element_text(size = 20, color = "black"),
-        axis.title.x = element_text(size = 20, color = "black"),
-        axis.text.y = element_text(size = 20, color = "black"),
-        axis.title.y = element_text(size = 20, color = "black"),
-        legend.title = element_blank(),
-        legend.position = c("none"),
-        legend.key.size = unit(3, "lines"),
-        legend.text = element_text(size = 20),
-        legend.background = element_rect(fill = "transparent", color = NA),
-        legend.key = element_rect(fill = "transparent", color = NA),
-        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
-        strip.text.x = element_text(size = 25, color = "black"),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_blank()
-        )
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold", color = "black"), 
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "black"),
+    axis.text.x = element_text(size = 15, color = "black"),
+    axis.text.y = element_text(size = 15, color = "black"),
+    axis.title.x = element_text(size = 15, color = "black"),
+    axis.title.y = element_text(size = 15, color = "black"),
+    legend.title = element_blank(),
+    legend.position = c(0.5, 0.3),
+    legend.key.size = unit(1, "lines"),
+    legend.text = element_text(size = 15),
+    legend.background = element_rect(fill = "transparent", color = NA),
+    legend.key = element_rect(fill = "transparent", color = NA),
+    strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+    strip.text.x = element_text(size = 15, color = "black"),
+    strip.text.y = element_text(size = 15, color = "black"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.border = element_blank(),
+    strip.placement = "outside",
+    panel.spacing = unit(1, "cm"),
+    plot.margin = margin(t = 0.1, r = 0.1, b = 0.1, l = 0.1, unit = "cm"))
 
-MotherArousalPlot <- ggplot(MotherArousalNewdata, aes(x = Leave, y = Estimate, fill = Role)) +
-  geom_rain(alpha = 0.8, 
-            rain.side = "f1x1", id.long.var = "CoupleID",
-            point.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42)),
-            line.args.pos = list(position = position_jitter(width = 0.04, height = 0, seed = 42))) +
-  geom_point(data = MotherArousalNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 5, color = "black") +
-  geom_point(data = MotherArousalNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-             size = 4, color = "#D95F02") +
-  geom_line(data = MotherArousalNewdata %>% group_by(Leave, Role) %>% summarise(Estimate = median(Estimate)),
-            linewidth = 1, color = "#D95F02", group = 1) +
-  scale_y_continuous(limits = c(-0.6, 0.4), breaks = c(seq(-0.5, 0.3, 0.1))) +
-  scale_fill_manual(values = "#D95F02") +
-  labs(x = "", y = "Arousal Estimates", title = "Mother") +
-  theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5, size=20), 
-        axis.text.x = element_text(size = 20, color = "black"),
-        axis.title.x = element_text(size = 20, color = "black"),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        legend.title = element_blank(),
-        legend.position = "none",
-        legend.key.size = unit(3, "lines"),
-        legend.text = element_text(size = 20),
-        legend.background = element_rect(fill = "transparent", color = NA),
-        legend.key = element_rect(fill = "transparent", color = NA),
-        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
-        strip.text.x = element_text(size = 25, color = "black"),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_blank()
-        )
+fig4B
 
-PredictedArousalT1_T2 <- cowplot::plot_grid(FatherArousalPlot, MotherArousalPlot)
-PredictedArousalT1_T2
-
-ggsave(plot = PredictedArousalT1_T2, file = here("FinalFigures", "PredictedArousalT1_T2.pdf"), height = 8, width = 12)
+title <- ggdraw() + 
+  draw_label("B) Population-Level Arousal Dependence",
+             fontface = "bold", size = 20)
+fig4B_w_title <- plot_grid(title, fig4B, ncol = 1, rel_heights = c(0.05, 1))
 ```
 
-
-# Phase Space Plot for Fathers
-
+# Figure 4C: State-Dependent Emotion Coupling, Father
 ```{r}
+# Create grid
 create_grid_for_couple <- function(couple_id, grid_size) {
   expand_grid(
     CoupleID = couple_id,
-    MotherValence_s = seq(-1.5, 1.5, length.out = grid_size),
-    MotherArousal_s = seq(-1.5, 1.5, length.out = grid_size),
+    MotherValence_s = seq(-2, 2, length.out = grid_size),
+    MotherArousal_s = seq(-2, 2, length.out = grid_size),
     FatherValenceVel = 0,
-    MotherValenceVel = seq(-1, 1, length.out = 10),
+    MotherValenceVel = 0,
     isProximate = 1,
     FatherValence_s = 0,
     FatherArousal_s = 0,
@@ -271,23 +523,23 @@ create_grid_for_couple <- function(couple_id, grid_size) {
   )
 }
 
-grid <- create_grid_for_couple(couple_id = unique(CoupledOscillatorModel$data$CoupleID)[1:40],
-                               grid_size = 7)
+grid <- create_grid_for_couple(
+  couple_id = unique(CoupledOscillatorModel$data$CoupleID)[1:40],
+  grid_size = 40
+)
 
-predictions <- predict(CoupledOscillatorModel, newdata = grid, allow_new_levels = TRUE, ndraws = 200, resp = "FatherValenceAcc")
+# Get predictions
+predictions <- predict(CoupledOscillatorModel, newdata = grid, 
+                      allow_new_levels = TRUE, ndraws = 500, resp = "FatherValenceAcc")
 
 pred_data <- as.data.frame(predictions) %>%
   mutate(CoupleID = grid$CoupleID,
          MotherValence_s = grid$MotherValence_s,
          MotherArousal_s = grid$MotherArousal_s,
-         Leave = grid$Leave,
-         FatherValenceVel = 0,
-         MotherValenceVel = grid$MotherValenceVel,
-         isProximate = 1,
-         FatherValence_s = 0,
-         FatherArousal_s = 0)
+         Leave = grid$Leave)
 
-bin_size <- 0.5
+# Calculate mean transitions
+bin_size <- 0.1
 
 mean_transitions <- pred_data %>%
   mutate(
@@ -296,175 +548,99 @@ mean_transitions <- pred_data %>%
   ) %>%
   group_by(ValenceBin, ArousalBin, Leave) %>%
   summarize(
-    mean_valence_change = mean(Estimate),
-    lb_valence_change = quantile(Estimate, prob = c(bin_size)),
-    ub_valence_change = quantile(Estimate, prob = c(bin_size)),
-    n_couples = n_distinct(CoupleID)
-  ) %>%
-  ungroup() %>%
-  rowwise() %>%
-  print(n = 40)
+    mean_change = mean(Estimate),
+    se_change = sd(Estimate) / sqrt(n()),
+    .groups = "drop"
+  )
 
-
-couple_transitions <- pred_data %>%
-  mutate(
-    ValenceBin = round(MotherValence_s / bin_size) * bin_size,
-    ArousalBin = round(MotherArousal_s / bin_size) * bin_size
-  ) %>%
-  group_by(CoupleID, ValenceBin, ArousalBin, Leave) %>%
-  summarize(
-    mean_valence_change = mean(Estimate),
-    lb_valence_change = quantile(Estimate, prob = 0.025),
-    ub_valence_change = quantile(Estimate, prob = 0.975),
-    n = n()
-  ) %>%
-  ungroup() %>%
-  print(n = 50)
-
-# Calculate consistency based on robust effects, accounting for direction
-consistency_data <- couple_transitions %>%
-  group_by(ValenceBin, ArousalBin, Leave) %>%
-  summarize(
-    # Calculate proportion of couples showing robust effects
-    consistency = mean(
-      (mean_valence_change > 0 & lb_valence_change > 0) |
-      (mean_valence_change < 0 & ub_valence_change < 0),
-      na.rm = TRUE
-    ),
-    n_couples = n_distinct(CoupleID),
-    mean_direction = mean(mean_valence_change)
-  ) %>%
-  ungroup()
-
-create_leave_plot <- function(consistency_data, mean_transitions, 
-                              leave_type, 
-                              bin_size, 
-                              show_legend = FALSE,
-                              with_axis = FALSE,
-                              with_axis_margin = FALSE) {
-  parent_label <- "Father"
-  other_parent <- "Mother"
-
-  legend_pos <- if(show_legend) c(-0.09, -0.08) else "none"
-  with_axis <- if(with_axis) element_text(size = 20, color = "black") else element_blank()
-  with_axis_margin <- if(with_axis_margin) element_text(size = 20, color = "black", margin = margin(r = -20)) else element_blank()
+# Simplified plot function (no consistency tiles)
+create_heatmap_plot <- function(mean_transitions, leave_type, 
+                                with_y_axis = FALSE, show_legend = FALSE) {
   
-  p <- ggplot() +
-    geom_segment(aes(x = 0, xend = 0, y = -1.75, yend = 1.75), linetype = "dashed") +
-    geom_segment(aes(x = -1.75, xend = 1.75, y = 0, yend = 0), linetype = "dashed") +
-    geom_tile(
-      data = filter(consistency_data, Leave == leave_type), 
-      aes(x = ArousalBin, y = ValenceBin, fill = consistency), 
-      alpha = 0.85
+  y_axis <- if(with_y_axis) {
+    element_text(size = 15, color = "black")
+  } else {
+    element_blank()
+  }
+  
+  legend_pos <- if(show_legend) "bottom" else "none"
+  
+  ggplot(mean_transitions %>% filter(Leave == leave_type)) +
+    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.3) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.3) +
+    geom_tile(aes(x = ArousalBin, y = ValenceBin, fill = mean_change), 
+              alpha = 0.99) +
+    scale_fill_gradient2(
+      low = "#d8434e", mid = "#f0f0f0", high = "#018571",
+      midpoint = 0, 
+      breaks = c(-0.5, 0, 0.5),
+      name = "Father\nAcceleration"
     ) +
-    geom_segment(
-      data = filter(mean_transitions, Leave == leave_type),
-      aes(y = ValenceBin, x = ArousalBin, 
-          yend = ValenceBin + mean_valence_change *1 ,
-          xend = ArousalBin),
-      color = "black",
-      arrow = arrow(length = unit(0.3, "cm")),
-      size = 0.8,
-      alpha = 0.9
-    ) +
-    geom_point(
-      data = filter(mean_transitions, Leave == leave_type),
-      aes(y = ValenceBin, x = ArousalBin), 
-      color = "black",
-      size = 1.5,
-      alpha = 0.9
-    ) +
-    scale_y_continuous(breaks = seq(-1.5, 1.5, bin_size)) +
-    scale_x_continuous(breaks = seq(-1.5, 1.5, bin_size)) +
-    scale_fill_viridis_c(
-      option = "viridis",
-      name = "",
-      limits = c(0, 1),
-      breaks = c(0, 0.5, 1),
-      labels = c("0", "0.5", "1")
-    ) +
+    scale_x_continuous(breaks = seq(-2, 2, 1)) +
+    scale_y_continuous(breaks = seq(-2, 2, 1)) +
     labs(
-      x = "Mother Arousal (z-score)",
-      y = "Mother Valence (z-score)",
-      title = sprintf("%s Acceleration, %s", parent_label, leave_type)
+      title = leave_type,
+      x = NULL,
+      y = if(with_y_axis) "Mother Valence (z-score)" else NULL
     ) +
     theme_minimal() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = -20)),
-      axis.text.x = element_text(size = 20, color = "black", margin = margin(t = -20)),
-      axis.title.x = element_text(size = 20), 
-      axis.text.y = with_axis_margin,
-      axis.title.y = with_axis,
-      axis.ticks = element_blank(),
-      legend.position = legend_pos,
-      legend.text = element_text(size = 15),
-      legend.title = element_text(size = 12, hjust = 0.5, vjust = 0.5),
-      legend.direction = "horizontal",
-      axis.line.y = element_blank(),
-      axis.line.x = element_blank(),
-      strip.background = element_rect(
-        color = "white", 
-        fill = "white", 
-        linewidth = 1.5, 
-        linetype = "solid"
-      ),
-      strip.text.x = element_text(size = 20, color = "black"),
-      plot.margin = margin(1, 1, 1, 1, "cm"),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
-    )
-  return(p)
+    theme(plot.title = element_text(hjust = 0.5, size=20), 
+        axis.text.x = element_text(size = 20, color = "black"),
+        axis.title.x = element_text(size = 20, color = "black"),
+        axis.text.y = if(with_y_axis) element_text(size = 20, color = "black") else element_blank(),
+        axis.title.y = element_text(size = 17, color = "black"),
+        legend.title = element_text(size = 17, color = "black"),
+        legend.position = if(show_legend) "right" else "none",
+        legend.key.size = unit(1.5, "lines"),
+        legend.text = element_text(size = 17, hjust = 1),
+        legend.background = element_rect(fill = "transparent", color = NA),
+        legend.key = element_rect(fill = "transparent", color = NA),
+        strip.background = element_rect(color="white", fill="white", linewidth=1.5, linetype="solid"),
+        strip.text.x = element_text(size = 25, color = "black"),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        plot.margin = margin(t = 0.1, r = 0.1, b = 0.9, l = 0.1, unit = "cm")
+        )
 }
 
-# For maternity leave
-father_maternity_plot <- create_leave_plot(consistency_data, mean_transitions, "Maternity Leave", bin_size, show_legend = FALSE, with_axis = TRUE, with_axis_margin = TRUE)
-father_maternity_plot
+# Create plots
+heatmap_mat <- create_heatmap_plot(mean_transitions, "Maternity Leave", 
+                                   with_y_axis = TRUE, show_legend = FALSE)
+heatmap_pat <- create_heatmap_plot(mean_transitions, "Paternity Leave", 
+                                   with_y_axis = FALSE, show_legend = TRUE)
 
-# For paternity leave
-father_paternity_plot <- create_leave_plot(consistency_data, mean_transitions, "Paternity Leave", bin_size, show_legend = TRUE, with_axis = FALSE, with_axis_margin = FALSE)
-father_paternity_plot
+# Combine
+fig_heatmap <- plot_grid(heatmap_mat, NULL, heatmap_pat, 
+                         ncol = 3, rel_widths = c(1.1, 0.1, 1.45),
+                         align = "h")
 
-#annotate("text", x = -2.2, y = -2.2, label = "Proportion CIs\n w. Same Sign", size = 2, angle = 0)
-FatherReactPlot <- cowplot::plot_grid(father_maternity_plot, father_paternity_plot, 
-                                      nrow = 1, rel_widths = c(1, 0.9), align = "h")
-FatherReactPlot <- FatherReactPlot +
-  cowplot::draw_text("Prop. CrIs w. Same Sign", 
-                    x = 0.52, y = 0.09,
-                    size = 12)
-FatherReactPlot
-ggsave(plot = FatherReactPlot, file = here("FinalFigures", "FatherReactPlot.pdf"), height = 7, width = 14)
+# Add centered x-axis label
+fig1 <- ggdraw(clip = "off") +
+  draw_plot(fig_heatmap) +
+  draw_text(
+    "Mother Arousal (z-score)",
+    x = 0.5,          
+    y = 0.02,         
+    hjust = 0.5,      
+    vjust = 0,        
+    size = 17
+  )
+
+print(fig1)
 ```
 
-## Calculate Consistency in Subject-Level Predictions for Fathers
-
+# Figure 4C: State-Dependent Emotion Coupling, Mother
 ```{r}
-LowHighValenceLowArousal <- ExtractConsistencyLowVLowA(ArousalBin_thres = -0.9, ValenceBin_thres = 0.9) %>%
-  mutate(Region = "LowHighValenceLowArousal")
-
-LowHighValenceHighArousal <- ExtractConsistencyHighVHighA(ArousalBin_thres = 0.9, ValenceBin_thres = 0.9) %>%
-  mutate(Region = "LowHighValenceHighArousal")
-
-ConsistencyData <- rbind(LowHighValenceLowArousal, LowHighValenceHighArousal) %>%
-  mutate(consistency = round(consistency, 2),
-         consistency_lb = round(consistency_lb, 2),
-         consistency_ub = round(consistency_ub, 2),
-         evidence_ratio = round(evidence_ratio, 2)) %>%
-  mutate(Region = ifelse(Leave == "Maternity Leave", paste0(Region, "_", "T1"), paste0(Region, "_", "T2")))
-
-write.csv(ConsistencyData, here("StatsForBodyText", "consistencydata_father.csv"), row.names = FALSE)
-```
-
-# Phase Space Plot for Mothers
-
-```{r}
-# Create a grid
+# Create grid (now for Father's states)
 create_grid_for_couple <- function(couple_id, grid_size) {
   expand_grid(
     CoupleID = couple_id,
-    FatherValence_s = seq(-1.5, 1.5, length.out = grid_size),
-    FatherArousal_s = seq(-1.5, 1.5, length.out = grid_size),
+    FatherValence_s = seq(-2, 2, length.out = grid_size),
+    FatherArousal_s = seq(-2, 2, length.out = grid_size),
     MotherValenceVel = 0,
-    FatherValenceVel = seq(-1, 1, length.out = 10),
+    FatherValenceVel = 0,
     isProximate = 1,
     MotherValence_s = 0,
     MotherArousal_s = 0,
@@ -472,26 +648,24 @@ create_grid_for_couple <- function(couple_id, grid_size) {
   )
 }
 
-grid <- create_grid_for_couple(couple_id = unique(CoupledOscillatorModel$data$CoupleID)[1:40],
-                               grid_size = 7)
+grid <- create_grid_for_couple(
+  couple_id = unique(CoupledOscillatorModel$data$CoupleID)[1:40],
+  grid_size = 40
+)
 
-predictions_mother <- predict(CoupledOscillatorModel, newdata = grid, allow_new_levels = TRUE, ndraws = 200, resp = "MotherValenceAcc")
+# Get predictions for MOTHER acceleration
+predictions <- predict(CoupledOscillatorModel, newdata = grid, 
+                      allow_new_levels = TRUE, ndraws = 500, resp = "MotherValenceAcc")
 
-pred_data <- as.data.frame(predictions_mother) %>%
+pred_data <- as.data.frame(predictions) %>%
   mutate(CoupleID = grid$CoupleID,
          FatherValence_s = grid$FatherValence_s,
          FatherArousal_s = grid$FatherArousal_s,
-         Leave = grid$Leave,
-         MotherValenceVel = 0,
-         FatherValenceVel = grid$FatherValenceVel,
-         isProximate = 1,
-         MotherValence_s = 0,
-         MotherArousal_s = 0)
+         Leave = grid$Leave)
 
-# Define the bin size
-bin_size <- 0.5
+# Calculate mean transitions
+bin_size <- 0.1
 
-# First calculate mean directions and couple consistency
 mean_transitions <- pred_data %>%
   mutate(
     ValenceBin = round(FatherValence_s / bin_size) * bin_size,
@@ -499,171 +673,109 @@ mean_transitions <- pred_data %>%
   ) %>%
   group_by(ValenceBin, ArousalBin, Leave) %>%
   summarize(
-    mean_valence_change = mean(Estimate),
-    lb_valence_change = quantile(Estimate, prob = c(0.1)),
-    ub_valence_change = quantile(Estimate, prob = c(0.9)),
-    #mean_arousal_change = mean(Estimate) * 0.4,
-    #mean_angle = atan2(mean_valence_change, mean_arousal_change),
-    n_couples = n_distinct(CoupleID)
-  ) %>%
-  ungroup() %>%
-  print(n = 40)
+    mean_change = mean(Estimate),
+    se_change = sd(Estimate) / sqrt(n()),
+    .groups = "drop"
+  )
 
-# Calculate couple-level directions and consistency
-couple_transitions <- pred_data %>%
-  mutate(
-    ValenceBin = round(FatherValence_s / bin_size) * bin_size,
-    ArousalBin = round(FatherArousal_s / bin_size) * bin_size
-  ) %>%
-  group_by(CoupleID, ValenceBin, ArousalBin, Leave) %>%
-  summarize(
-    mean_valence_change = mean(Estimate),
-    lb_valence_change = quantile(Estimate, prob = 0.025),
-    ub_valence_change = quantile(Estimate, prob = 0.975),
-    n = n()
-  ) %>%
-  ungroup() %>%
-  print(n = 50)
-
-# Calculate consistency based on robust effects, accounting for direction
-consistency_data <- couple_transitions %>%
-  group_by(ValenceBin, ArousalBin, Leave) %>%
-  summarize(
-    # Calculate proportion of couples showing robust effects
-    consistency = mean(
-      # For positive mean effects, check lower bound
-      # For negative mean effects, check upper bound
-      (mean_valence_change > 0 & lb_valence_change > 0) |
-      (mean_valence_change < 0 & ub_valence_change < 0),
-      na.rm = TRUE
-    ),
-    mean_direction = mean(mean_valence_change)
-  ) %>%
-  ungroup()
-
-create_leave_plot <- function(consistency_data, mean_transitions, 
-                            leave_type, 
-                            bin_size, 
-                            show_legend = FALSE,
-                            with_axis = FALSE,
-                            with_axis_margin = FALSE) {
-  parent_label <- "Mother"
-  other_parent <- "Father"
+# Plot function
+create_heatmap_plot_mother <- function(mean_transitions, leave_type, 
+                                       with_y_axis = FALSE, show_legend = FALSE) {
   
-  legend_pos <- if(show_legend) c(-0.09, -0.08) else "none"
-  with_axis <- if(with_axis) element_text(size = 20, color = "black") else element_blank()
-  with_axis_margin <- if(with_axis_margin) element_text(size = 20, color = "black", margin = margin(r = -20)) else element_blank()
+  y_axis <- if(with_y_axis) {
+    element_text(size = 15, color = "black")
+  } else {
+    element_blank()
+  }
   
-  p <- ggplot() +
-    geom_segment(aes(x = 0, xend = 0, y = -1.75, yend = 1.75), linetype = "dashed") +
-    geom_segment(aes(x = -1.75, xend = 1.75, y = 0, yend = 0), linetype = "dashed") +
-    geom_tile(
-      data = filter(consistency_data, Leave == leave_type), 
-      aes(x = ArousalBin, y = ValenceBin, fill = consistency), 
-      alpha = 0.85
+  legend_pos <- if(show_legend) "bottom" else "none"
+  
+  ggplot(mean_transitions %>% filter(Leave == leave_type)) +
+    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.3) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.3) +
+    geom_tile(aes(x = ArousalBin, y = ValenceBin, fill = mean_change), 
+              alpha = 0.99) +
+    scale_fill_gradient2(
+      low = "#0d0887", mid = "#f0f0f0", high = "#E1AF00",
+      midpoint = 0, 
+      limits = c(-0.7, 0.8),
+      breaks = c(-0.5, 0, 0.5),
+      name = "Mother\nAcceleration"
     ) +
-    geom_segment(
-      data = filter(mean_transitions, Leave == leave_type),
-      aes(y = ValenceBin, x = ArousalBin, 
-          yend = ValenceBin + mean_valence_change * 1,
-          xend = ArousalBin),
-      color = "black",
-      arrow = arrow(length = unit(0.3, "cm")),
-      size = 0.8,
-      alpha = 0.9
-    ) +
-    geom_point(
-      data = filter(mean_transitions, Leave == leave_type),
-      aes(y = ValenceBin, x = ArousalBin), 
-      color = "black",
-      size = 1.5,
-      alpha = 0.9
-    ) +
-    scale_y_continuous(breaks = seq(-1.5, 1.5, bin_size)) +
-    scale_x_continuous(breaks = seq(-1.5, 1.5, bin_size)) +
-    scale_fill_viridis_c(
-      option = "viridis",
-      name = "",
-      limits = c(0, 1),
-      breaks = c(0, 0.5, 1),
-      labels = c("0", "0.5", "1")
-    ) +
+    scale_x_continuous(breaks = seq(-2, 2, 1)) +
+    scale_y_continuous(breaks = seq(-2, 2, 1)) +
     labs(
-      x = "Father Arousal (z-score)",
-      y = "Father Valence (z-score)",
-      title = sprintf("%s Acceleration, %s", parent_label, leave_type)
+      title = leave_type,
+      x = NULL,
+      y = if(with_y_axis) expression(paste("Father Valence (", italic("z"), "-score)")) else NULL
     ) +
     theme_minimal() +
     theme(
-      plot.title = element_text(hjust = 0.5, size = 25, margin = margin(b = -20)),
-      axis.text.x = element_text(size = 20, color = "black", margin = margin(t = -20)),
-      axis.title.x = element_text(size = 20), 
-      axis.text.y = with_axis_margin,
-      axis.title.y = with_axis,
-      axis.ticks = element_blank(),
-      legend.position = legend_pos,
-      legend.text = element_text(size = 15),
-      legend.title = element_text(size = 12, hjust = 0.5, vjust = 0.5),
-      legend.direction = "horizontal",
-      axis.line.y = element_blank(),
-      axis.line.x = element_blank(),
-      strip.background = element_rect(
-        color = "white", 
-        fill = "white", 
-        linewidth = 1.5, 
-        linetype = "solid"
-      ),
-      strip.text.x = element_text(size = 20, color = "black"),
-      plot.margin = margin(1, 1, 1, 1, "cm"),
+      plot.title = element_text(hjust = 0.5, size = 20), 
+      axis.text.x = element_text(size = 20, color = "black"),
+      axis.title.x = element_text(size = 20, color = "black"),
+      axis.text.y = if(with_y_axis) element_text(size = 20, color = "black") else element_blank(),
+      axis.title.y = element_text(size = 17, color = "black"),
+      legend.title = element_text(size = 17, color = "black"),
+      legend.position = if(show_legend) "right" else "none",
+      legend.key.size = unit(1.5, "lines"),
+      legend.text = element_text(size = 17, hjust = 1),
+      legend.background = element_rect(fill = "transparent", color = NA),
+      legend.key = element_rect(fill = "transparent", color = NA),
+      strip.background = element_rect(color = "white", fill = "white", linewidth = 1.5, linetype = "solid"),
+      strip.text.x = element_text(size = 25, color = "black"),
+      panel.grid.minor = element_blank(),
       panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank()
+      plot.margin = margin(t = 0.1, r = 0.1, b = 0.9, l = 0.1, unit = "cm")
     )
-  return(p)
 }
 
-# For maternity leave
-mother_maternity_plot <- create_leave_plot(consistency_data, mean_transitions, "Maternity Leave", bin_size, show_legend = FALSE, with_axis = TRUE, with_axis_margin = TRUE)
-mother_maternity_plot
+# Create plots
+heatmap_mat_mother <- create_heatmap_plot_mother(mean_transitions, "Maternity Leave", 
+                                                  with_y_axis = TRUE, show_legend = FALSE)
+heatmap_pat_mother <- create_heatmap_plot_mother(mean_transitions, "Paternity Leave", 
+                                                  with_y_axis = FALSE, show_legend = TRUE)
 
-# For paternity leave
-mother_paternity_plot <- create_leave_plot(consistency_data, mean_transitions, "Paternity Leave", bin_size, show_legend = TRUE, with_axis = FALSE, with_axis_margin = FALSE)
-mother_paternity_plot
+# Combine
+fig_heatmap_mother <- plot_grid(heatmap_mat_mother, NULL, heatmap_pat_mother, 
+                                ncol = 3, rel_widths = c(1.1, 0.1, 1.45),
+                                align = "h")
 
-MotherReactPlot <- cowplot::plot_grid(mother_maternity_plot, mother_paternity_plot, 
-                                     nrow = 1, rel_widths = c(1, 0.9), align = "h")
-MotherReactPlot <- MotherReactPlot +
-  cowplot::draw_text("Prop. CrIs w. Same Sign", 
-                    x = 0.52, y = 0.09,
-                    size = 12)
-MotherReactPlot
-ggsave(plot = MotherReactPlot, file = here("FinalFigures", "MotherReactPlot.pdf"), height = 7, width = 14)
+# Add centered x-axis label
+fig_mother <- ggdraw(clip = "off") +
+  draw_plot(fig_heatmap_mother) +
+  draw_text(
+    "Father Arousal (z-score)",
+    x = 0.5,
+    y = 0.02,
+    hjust = 0.5,
+    vjust = 0,
+    size = 17
+  )
+
+print(fig_mother)
+
+title <- ggdraw() + 
+  draw_label("C) State-Dependent Emotion Coupling", 
+             fontface = "bold", size = 20)
+
+fig4C_w_title <- plot_grid(title, NULL, 
+          plot_grid(fig_mother, NULL, fig1, nrow = 1, rel_widths = c(1, 0.1, 1)),
+          ncol = 1, 
+          rel_heights = c(0.09, 0.05, 1))
 ```
 
-## Calculate Consistency in Subject-Level Predictions for Mothers
+# Combine all Figures into Plot
 
 ```{r}
-LowHighValenceLowArousal <- ExtractConsistencyLowVLowA(ArousalBin_thres = -0.9, ValenceBin_thres = 0.9) %>%
-  mutate(Region = "LowHighValenceLowArousal")
+fig4A_and_B_w_title <- plot_grid(fig4A_w_title, NULL, fig4B_w_title, nrow = 1, rel_widths = c(1, 0.1, 1),
+          align = 'v',
+          axis = 'tb')
 
-LowHighValenceHighArousal <- ExtractConsistencyHighVHighA(ArousalBin_thres = 0.9, ValenceBin_thres = 0.9) %>%
-  mutate(Region = "LowHighValenceHighArousal")
+fig4full <- plot_grid(NULL, fig4A_and_B_w_title, NULL, fig4C_w_title, NULL,
+          ncol = 1, 
+          rel_heights = c(0.02, 0.8, 0.07, 0.3, 0.02))
 
-ConsistencyData <- rbind(LowHighValenceLowArousal, LowHighValenceHighArousal) %>%
-  mutate(consistency = round(consistency, 2),
-         consistency_lb = round(consistency_lb, 2),
-         consistency_ub = round(consistency_ub, 2),
-         evidence_ratio = round(evidence_ratio, 2)) %>%
-  mutate(Region = ifelse(Leave == "Maternity Leave", paste0(Region, "_", "T1"), paste0(Region, "_", "T2")))
-
-#write.csv(ConsistencyData, here("StatsForBodyText", "consistencydata_mother.csv"), row.names = FALSE)
-```
-
-# Extract Data for the Paper
-
-```{r}
-all_tests <- extract_all_tests(CoupledOscillatorModel)
-# Write to CSV
-write.csv(all_tests, here("StatsForBodyText", "coupledoscillator_tests.csv"), row.names = FALSE)
-
-all_tests <- read.csv(here("StatsForBodyText", "coupledoscillator_tests.csv"))
+#ggsave(plot = fig4full, file = here("FinalFigures", "FullPatternDescription.pdf"), height = 13, width = 15)
+#ggsave(plot = fig4full, file = here("FinalFigures", "FullPatternDescription.png"), height = 13, width = 15)
 ```

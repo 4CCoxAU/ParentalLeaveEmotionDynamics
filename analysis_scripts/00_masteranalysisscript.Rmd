@@ -1,7 +1,7 @@
 ---
-title: "Emotion Dynamics"
-author: ""
-date: "2025-03-06"
+title: "Emotion Dynamics Simulations"
+author: "Chris Cox"
+date: "2025-11-28"
 output: pdf_document
 editor_options: 
   chunk_output_type: console
